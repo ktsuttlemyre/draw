@@ -14,7 +14,7 @@ var settings = require('./src/util/Settings.js'),
     fs = require('fs'),
     http = require('http'),
     https = require('https');
-
+paper.settings.applyMatrix=false
 /** 
  * SSL Logic and Server bindings
  */ 
@@ -194,7 +194,10 @@ function subscribe(socket, data) {
     // this project as each room has its own project. We share the View
     // object but that just helps it "draw" stuff to the invisible server
     // canvas.
-    projects.projects[room].project = new paper.Project();
+    project = new paper.Project();
+    //project.activeLayer.applyMatrix=false;
+    projects.projects[room].project = project
+
     projects.projects[room].external_paths = {};
     db.load(room, socket);
   } else { // Project exists in memory, no need to load from database

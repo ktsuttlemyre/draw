@@ -28,13 +28,17 @@
 	  */
 	</script>
         <meta charset="utf-8"> 
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+      <!--   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"> -->
+        <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
         <link rel="shortcut icon" href="/static/img/favicon.ico">
-
+        <script src='https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.6/hammer.js'></script>
+        <script src='https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.6.1/lodash.js'></script>
         <script src='/socket.io/socket.io.js'></script>
-        <script src='/static/js/lib/jquery.js'></script>
+        <script src="https://code.jquery.com/jquery-2.2.1.min.js"   integrity="sha256-gvQgAFzTH6trSrAWoH1iPo9Xc96QxSZ3feW6kem+O00="   crossorigin="anonymous"></script>
         <script src='/static/js/lib/jquery_browser.js'></script>
-        <script src='/static/js/lib/paper.js'></script>
+
+    <script src='https://cdn.rawgit.com/jquery/jquery-mousewheel/master/jquery.mousewheel.min.js'></script>
+        <script src='https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.9.25/paper-full.min.js'></script>
         <script src='/static/js/lib/webtoolkit.base64.js'></script>
         <script src='/static/js/lib/farbtastic.js'></script>
 	<script src='/static/js/lib/jquery.pep.min.js'></script>
@@ -48,9 +52,15 @@
                 <div id="overlay-inner"></div>
             </div>
             <ul class="menu_left">
-                <!-- paint brush -->
+                <!-- draw brush -->
                 <li class="acl-write" id="drawTool" data-key="draw">
                     <a class="grouped-left" data-l10n-id="draw.toolbar.draw.title">
+                      <span class="buttonicon buttonicon-draw"></span>
+                    </a>
+                </li>
+                <!--paint brush-->
+                <li class="acl-write" id="paintTool" data-key="paint">
+                    <a class="grouped-middle" data-l10n-id="draw.toolbar.draw.title">
                       <span class="buttonicon buttonicon-draw"></span>
                     </a>
                 </li>
@@ -58,6 +68,11 @@
                 <li class="acl-write" id="pencilTool" data-key="pencil">
                     <a class="grouped-middle" data-l10n-id="draw.toolbar.pencil.title">
                       <span class="buttonicon buttonicon-pencil"></span>
+                    </a>
+                </li>
+                <li class="acl-write" id="circleTool" data-key="circle">
+                    <a class="grouped-middle" data-l10n-id="">
+                      <span class="buttonicon "></span>
                     </a>
                 </li>
 		<!-- Select Tool -->
@@ -179,7 +194,7 @@
     <input type="file" id="imageInput" accept="image/*" />
     <div id="activeColorSwatch"></div>
     <div id="canvasContainer">
-      <canvas id="myCanvas" resize="true"></canvas>
+      <canvas id="myCanvas" resize="true" ></canvas>
       <div id="mycolorpicker">
         <div id="colorpickerMover"></div>
         <div id="colorpicker"></div>

@@ -1,7 +1,7 @@
 var paper = require('paper');
 var projects = require('./projects.js');
 var db = require('./db.js');
-
+paper.settings.applyMatrix=false
 projects = projects.projects;
 
 // Create an in memory paper canvas
@@ -21,7 +21,7 @@ exports.progressExternalPath = function (room, points, artist) {
 
     // Starts the path
     var start_point = new drawing.Point(points.start[1], points.start[2]);
-    var color = new drawing.Color(points.rgba.red, points.rgba.green, points.rgba.blue, points.rgba.opacity);
+    var color = new drawing.Color(points.rgba[0], points.rgba[1], points.rgba[2], points.rgba[3]);
     if(points.tool == "draw") {
       path.fillColor = color;
     }
