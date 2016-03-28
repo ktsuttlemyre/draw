@@ -2,9 +2,9 @@
 
 tool.minDistance = 10;
 tool.maxDistance = 45;
-paper.settings.applyMatrix=false
+//paper.settings.applyMatrix=false
 console.log('@settings@',settings)
-
+var odd=true
 var room = window.location.pathname.split("/")[2];
 var preferences = {
   longClick:300
@@ -12,6 +12,8 @@ var preferences = {
 }
 
 var debug=false
+var debugStrokeColor=new Color(1,0,1,1)
+var debugFillColor=new Color(1,0,1,.3)
 function simplePoly(original,options){ //DEV NOTE: Options.simplify isn't suggested to be used
   var clone=original.clone(false)
   var complexPath=clone.unite()
@@ -1175,6 +1177,7 @@ Select.prototype.onMouseUp=function(event){
         // Send any remaining movement info
         var itemNames = new Array();
         for (x in paper.project.selectedItems) {
+          console.info('moved',paper.project.selectedItems[x].name)
           var item = paper.project.selectedItems[x];
           itemNames.push(item._name);
         }
@@ -1298,48 +1301,137 @@ var brushes={
 
   paint:{
     name:'paint',
-    poll:function(data){
-      this.debugLayer.activate()
-
-      // if(path.segments.length<3){
-      //   return
-      // }
+    poll:function(data,force){
+       if(!force &&Math.abs(path.area)<500){
+         return
+       }
       var glob = path
+      var middleIndex=Math.floor((0 + glob.segments.length)/2)
+      var start=middleIndex
+      var end=glob.segments.length
+     // glob.smooth({type:'continuous',from:middleIndex,to:glob.segments.length-1})
+        // for(var i=start,l=end;i<l;i++){
+        //   if(!glob.segments[i].smooth){
+        //     console.log('@@@@',i,'@@@',glob,glob.segments[i],glob.segments[i].smooth)
+        //    new Path.Circle({
+        //        center: glob.segments[i].point,
+        //        radius: 1,
+        //        fillColor: 'red'
+        //    });
+        //   }else{
+        //     glob.segments[i]&&glob.segments[i].smooth()
+        //   }
+        // }
+       // odd=!odd
+      //if(middleIndex==glob.segments.length-middleIndex && odd){
+new Path.Circle({
+               center: glob.segments[start].point+{x:0,y:6},
+               radius: 2,
+               fillColor: 'green'
+           });
+        new Path.Circle({
+               center: glob.segments[end-1].point+{x:0,y:6},
+               radius: 3,
+               fillColor: 'red'
+           });
 
+      this.debugLayer.activate()
+        //view.draw()
+        
+        var segs=glob.removeSegments(start,end) //TODO when paperjs supports path.smooth({from:start,to:end}) use that instead
+        if(segs.length){
+          //console.info('new selection')
+          var p=new Path(segs)
+          //console.info('p',p.segments.length,p)
+          //if(this.lastBottomLineSegments){
+          //  p.insertSegments(0,this.lastBottomLineSegments)
+          //}
+          //this.lastBottomLineSegments=segs;
+          //console.info('p',p.segments.length,p)
+
+          //p.applyMatrix=false
+          p.smooth('catmull-rom')
+          
+          //segs=p.removeSegments( p.segments.length-(end-start) )
+          //console.info('p',p.segments.length,p)
+          //DEV NOTE if you try the append previous line before smoothing appoach here make sure to use segs instead of p.segments
+          glob.insertSegments(start,p.segments); //insert at start again
+          p.remove()
+          //.smooth({from:start,to:end})
+          console.info('end selection')
+        }
+        //view.draw()
+      //}
+
+
+      
       path=new Path([path.firstSegment,path.lastSegment])
+      var name = glob.name.split(':')
+      name[name.length-1]=(++this.iGlob)
+
+      path.name=name.join(':');
+
       path.fillColor=active_color
       path.closed=true
 
 
-      //glob.remove()
       testGlobs.push(glob.pathData)
-      console.log('masterGlob',this.masterGlob,path,glob)
       if(!glob){
         return
       }
+      glob.remove()
+      name=glob.name
+      glob=simplePoly(glob)
+      glob.name=name
       this.defaultLayer.activate()
-      var addition=this.masterGlob.unite(glob)
-      
-      if(addition){
-        this.masterGlob.remove()
-        console.log('new glob',addition)
-        this.masterGlob=addition
+
+
+      if(!this.masterGlob){
+        this.masterGlob=glob.clone()
+        name=glob.name.split(':')
+        name.pop()
+        this.masterGlob.name=name.join(':')
+        this.masterGlob.parent=this.defaultLayer
+      }else{
+        var addition=this.masterGlob.unite(glob)
+         if(this.masterGlob.area==addition.area){
+          console.log('not significant addition')
+           return //not a significant addition
+         }
+        if(addition){
+          addition.name=this.masterGlob.name
+          this.masterGlob.remove()
+          console.log('new glob',addition)
+          this.masterGlob=addition
+        }
       }
+      glob.strokeColor=debugStrokeColor
+      glob.fillColor=debugFillColor
+      
+
       console.log('emmit:',glob)
       data.globs.push(glob.pathData)
-
       var st = JSON.stringify(data) //take a snapshot
       data.globs= []
+
+      this.lastGlob=glob
       return st
     }
     ,onMouseDown:function(event){
+      //create a debug layer. Debug layer will serve as a dumping gound for all the
+      // artifacts we create in paperjs. It is also helpful for debuging. doublespeak name.
       this.defaultLayer=project.activeLayer
       this.debugLayer=new Layer()
       this.debugLayer.name='debug:paintGlobs'
       this.debugLayer.visible=debug
       this.defaultLayer.activate()
 
+      //set variables
       this.iGlob=0
+      this.masterGlob=null
+      this.lastGlob=null
+      this.lastTopLine=null
+      this.lastBottomLineSegments=null
 
        path = new Path();
        path.closed=true
@@ -1358,13 +1450,13 @@ var brushes={
         path.fillColor=fillColor
 
         path.add(event.point);
-        path.name = uid + ":" + (++paper_object_count)+':'+this.iGlob
+        path.name = uid + ":" + (++paper_object_count)+':'+(this.iGlob)
 
-        this.masterGlob=new Path.Circle({
-              center: event.point,
-              radius: 4,
-              fillColor: 'gold'
-          });
+        // this.masterGlob=new Path.Circle({
+        //       center: event.point,
+        //       radius: 4,
+        //       fillColor: 'gold'
+        //   });
 
         // The data we will send every 100ms on mouse drag
         path_to_send = {
@@ -1391,7 +1483,6 @@ var brushes={
 
     path.add(top);
     path.insert(0, bottom);
-
 
     //////@@@@ undo stop point! for dev kyle only
     //path = simplePoly(path)
@@ -1421,7 +1512,6 @@ var brushes={
     //     });
     // }
 
-
     // Send the path to other users
     path_to_send.end = view.viewToProject(path.lastSegment.point);
     path_to_send.pathData = path.pathData
@@ -1429,12 +1519,15 @@ var brushes={
     // it does add a duplicate segment, but that is okay for now.
 
 
-    socket.emit('draw:progress', room, uid, this.poll(path_to_send));
+    socket.emit('draw:progress', room, uid, this.poll(path_to_send,'force'));
     socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    //this.masterGlob.strokeColor='green'
+    
 
     // Stop new path data being added & sent
     path_to_send.path = new Array();
     !debug && this.debugLayer.remove()
+    path.remove()
 
   },progressExternalPath:function(points,path){
     if(!path){
