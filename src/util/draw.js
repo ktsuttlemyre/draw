@@ -1,7 +1,7 @@
 var paper = require('paper');
+//paper.settings.applyMatrix=false
 var projects = require('./projects.js');
 var db = require('./db.js');
-paper.settings.applyMatrix=false
 projects = projects.projects;
 
 // Create an in memory paper canvas
@@ -16,23 +16,9 @@ exports.progressExternalPath = function (room, points, artist) {
   // The path hasn't already been started
   // So start it
   if (!path) {
-    projects[room].external_paths[artist] = new drawing.Path();
-    path = projects[room].external_paths[artist];
-
-    // Starts the path
-    var start_point = new drawing.Point(points.start[1], points.start[2]);
-    var color = new drawing.Color(points.rgba[0], points.rgba[1], points.rgba[2], points.rgba[3]);
-    if(points.tool == "draw") {
-      path.fillColor = color;
-    }
-    else if (points.tool == "pencil") {
-      path.strokeColor = color;
-      path.strokeWidth = 2;
-    } else { // assume tool is not supplied, set to 'draw' as default
-      path.fillColor = color;
-    }
-    path.name = points.name;
-    path.add(start_point);
+    
+    path=projects[room].external_paths[artist] = project.importJSON(points.init);
+    path.parent=project.activeLayer //TODO put this in users layer or users project
   }
 
   // Draw all the points along the length of the path

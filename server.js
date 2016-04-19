@@ -8,13 +8,14 @@ var settings = require('./src/util/Settings.js'),
     projects = require('./src/util/projects.js'),
     db = require('./src/util/db.js'),
     express = require("express"),
-    paper = require('paper'),
+    paper = require('paper'), //Remove paper from this server file
     socket = require('socket.io'),
     async = require('async'),
     fs = require('fs'),
     http = require('http'),
     https = require('https');
-paper.settings.applyMatrix=false
+//paper.settings.applyMatrix = false;
+
 /** 
  * SSL Logic and Server bindings
  */ 
@@ -42,9 +43,9 @@ var clientSettings = {
 }
 
 // Config Express to server static files from /
-app.configure(function(){
-  app.use(express.static(__dirname + '/'));
-});
+// app.configure(function(){
+//   app.use(express.static(__dirname + '/'));
+// });
 
 // Sessions
 app.use(express.cookieParser());
@@ -61,18 +62,72 @@ app.configure('production', function(){
 });
 
 
-
+//http://graffinity.io/@username
 
 // ROUTES
-// Index page
+
+// Static files IE Javascript and CSS
+app.use(require("connect-slashes")(false))
+app.use("/static", express.static(__dirname + '/src/static'));
 app.get('/', function(req, res){
-  res.sendfile(__dirname + '/src/static/html/index.html');
+  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+});
+app.all(["/admin"
+        ,"/login"
+        ,"/graffinity*"
+        ,"/site"
+        ,"/admins"
+        ,'/logout'
+        ,'/signup'
+        ,'/about'],function(req,res,next){
+  res.sendfile(__dirname+'/src/static/html/reserved.html')
+})
+
+// View users profile or allow a user to see their public/private works
+app.get('/~:user/:canvas', function(req, res){
+  var room = req.params.canvas
+  console.log('canvas',room,' note: if it is prefixed with a dot it is private')
+  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
 });
 
-// Drawings
-app.get('/d/*', function(req, res){
-  res.sendfile(__dirname + '/src/static/html/draw.html');
+// Follow an active user
+app.get('/@:names', function(req, res){
+  var names=req.params.names.split(',')
+  console.log(names)
+  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
 });
+
+
+// Follow an active user
+app.get('//*', function(req, res){
+  res.redirect(req.url.slice(0, 1) + "~" + req.url.slice(1));
+});
+
+
+// Index page
+app.get('/:room?/:coords?/:args?', function(req, res){
+  var coords=req.params.coords
+  if(coords){
+    coords=coords.split(',')
+  }
+  var args=req.params.args
+  var room = req.params.room
+  if(room &&room.indexOf(',')!=-1){
+    res.redirect("/~" + req.url);
+    return
+  }
+
+  console.log('room:',room,'coords:',coords,'args',args)
+  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+});
+
+
+
+
+// // Drawings
+// app.get('/d/*', function(req, res){
+//   res.sendfile(__dirname + '/src/static/html/draw.html');
+// });
 
 // Front-end tests
 app.get('/tests/frontend/specs_list.js', function(req, res){
@@ -86,8 +141,6 @@ app.get('/tests/frontend', function (req, res) {
   res.redirect('/tests/frontend/');
 });
 
-// Static files IE Javascript and CSS
-app.use("/static", express.static(__dirname + '/src/static'));
 
 
 
@@ -112,8 +165,21 @@ io.sockets.on('connection', function (socket) {
       loadError(socket);
       return;
     }
-    io.in(room).emit('draw:progress', uid, co_ordinates);
-    draw.progressExternalPath(room, JSON.parse(co_ordinates), uid);
+
+    //scrub the attributes object //removing segments
+    var json = JSON.parse(co_ordinates)
+    if(json.attributes){
+      for(var i=0,l=json.attributes.length;i<l;i++){
+        var segments= json.attributes[i].segments
+        if(segments){ //currently only scrubbing the segments away
+          //json.segments=segments 
+          delete json.attributes[i].segments
+        }
+      }
+    }
+
+    io.in(room).emit('draw:progress', uid, JSON.stringify(json));
+    draw.progressExternalPath(room, json, uid);
   });
 
   // EVENT: User stops drawing something
@@ -123,6 +189,10 @@ io.sockets.on('connection', function (socket) {
       loadError(socket);
       return;
     }
+    
+    //TODO here pathData should be populated on the root of the json object
+    //TODO need to update boundry
+    //TODO make sure the input is sane
     io.in(room).emit('draw:end', uid, co_ordinates);
     draw.endExternalPath(room, JSON.parse(co_ordinates), uid);
   });

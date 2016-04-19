@@ -325,6 +325,7 @@ input[type=checkbox] {
   width: 50%;
 }
 #settings,
+#clearCanvasPopup,
 #importexport,
 #embed,
 #connectivity,

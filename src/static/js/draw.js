@@ -1,20 +1,61 @@
-// Please refactor me, this is mostly a complete car crash with globals everywhere.
-
+//paper.settings.applyMatrix = false; 
 tool.minDistance = 10;
 tool.maxDistance = 45;
 //paper.settings.applyMatrix=false
 console.log('@settings@',settings)
 var odd=true
-var room = window.location.pathname.split("/")[2];
+var debug=true
+var debugStrokeColor=new Color(1,0,1,1)
+var debugFillColor=new Color(1,0,1,.3)
+
 var preferences = {
   longClick:300
   ,mouseButtonMap:['primary','middle','secondary','back','forward']
 }
 
-var debug=false
-var debugStrokeColor=new Color(1,0,1,1)
-var debugFillColor=new Color(1,0,1,.3)
+
+var hudProject;
+
+
+var room,coords;
+page('/:room?/:coords?/:args?', function(context){
+  room = context.params.room;
+  if(!room){
+    room='~'
+  }
+  coords=context.params.coords
+  if(coords){
+    coords=coords.split(',').map(Number);
+  }
+});
+page()
+
+//see christoph answer http://stackoverflow.com/questions/661562/how-to-format-a-float-in-javascript
+var fixedPrecision = Math.pow(10, 3 || 0); //3 is decimal length
+var setCoordsInURL= function(roomName,X,Y,zoom){
+  //set everything if needed
+  roomName=roomName||room
+  X= view.center.x= Math.round(X||view.center.x||0)
+  Y= view.center.y= Math.round(Y||view.center.y||0)
+  zoom = view.zoom= Math.round((zoom||view.zoom)* fixedPrecision) / fixedPrecision //this sets precision without using a string
+
+  if(zoom!=1){
+    page.redirect('/'+roomName+'/'+X+','+Y+','+zoom)
+  }else if(X||Y){
+    page.redirect('/'+roomName+'/'+X+','+Y)
+  }
+  
+}
+var setCoordsInURLDebounced=_.debounce(setCoordsInURL,150)
+
+
+
+
+
 function simplePoly(original,options){ //DEV NOTE: Options.simplify isn't suggested to be used
+  if(!original){
+    return original
+  }
   var clone=original.clone(false)
   var complexPath=clone.unite()
 
@@ -29,6 +70,7 @@ function simplePoly(original,options){ //DEV NOTE: Options.simplify isn't sugges
   if(options.simplify===true){
     options.simplify=2.5
   }
+
 
   complexPath.fillColor="green"
   var db={}
@@ -93,6 +135,12 @@ function simplePoly(original,options){ //DEV NOTE: Options.simplify isn't sugges
   layer.activate()
   layer.addChild(outside)
   tmpLayer.remove()
+
+  if(options.replace){
+    outside.name=original.name
+    original.remove()
+  }
+
   return outside
 }
 
@@ -150,6 +198,23 @@ GraffinityPointer.prototype.pointTo=function(event){
 }
 GraffinityPointer.prototype.getPosition=function(){
   return this.group.position
+}
+
+
+function midPoint(p1,p2){
+
+  var p = p1+((p2-p1)/2)
+
+  console.log('@@@@@',p.x,p.y)
+  console.dir(p)
+  if(debug){
+    new Path.Circle({
+        center: p,
+        radius: 5,
+        fillColor: 'blue'
+    });
+  }
+  return p
 }
 
 var RadialMenu=function(collection){
@@ -362,11 +427,20 @@ RadialMenu.prototype.hide=function(){
   this.group.visible=false
 }
 RadialMenu.prototype.show=function(event){
-  if(event){
+  if(!event){
+    this.point=project.view.center
+  }else{
     this.point =((event.point)?event.point:event)
   }
   this.group.position=this.point;
   this.group.visible=true
+}
+RadialMenu.prototype.toggle=function(){
+  if(this.group.visible){
+    this.hide()
+  }else{
+    this.show()
+  }
 }
 
 
@@ -490,10 +564,14 @@ function hexToRgb(hex) {
 //     })(SimplePanAndZoom);
 // var  panAndZoom = new StableZoom();
 
-var ViewZoom = (function () {
+var ViewZoom = (function () { //https://gist.github.com/ryascl/4c1fd9e2d5d0030ba429
     function ViewZoom(project,ignoreLayers) {
-        var _this = this;
-        this.factor = 1.25;
+        this.factor = 1.06;
+        this.joystickDrivePan=false
+        this.dragPan=false
+        this.inverseMousewheel={x:false,y:false}
+
+
         if(ignoreLayers){
           this.ignoreLayers=(Array.isArray(ignoreLayers))?ignoreLayers:[ignoreLayers];
           this.layerScale=1
@@ -509,44 +587,59 @@ var ViewZoom = (function () {
 
         var lastWheelPosition;
 
-        $(view.element).mousewheel(function (event) {
+        $(document).mousewheel(_.bind(function (event) {
             var mousePosition = new paper.Point(event.offsetX, event.offsetY);
             var deltaY = event.originalEvent.deltaY
             var deltaX = event.originalEvent.deltaX
             event.preventDefault()
+            if(this.inverseMousewheel.x){
+              deltaX=-deltaX
+            }
+            if(this.inverseMousewheel.y){
+              deltaY=-deltaY
+            }
             if(event.shiftKey){
               if(Math.abs(deltaY)>Math.abs(deltaX)){
-                _this.changeZoomCentered(deltaY, mousePosition);
+                this.changeZoomCentered(deltaY, mousePosition);
               }else{
-                //_this.changeZoomCentered(deltaY, mousePosition,.1);
+                //this.changeZoomCentered(deltaY, mousePosition,.1);
               }
               return
             }
-              _this.pan(deltaX,deltaY,event.deltaFactor)
+            this.pan(deltaX,deltaY,event.deltaFactor)
 
 
-        });
-        view.on("mousedown", function (ev) {
-            _this.viewCenterStart = view.center;
+        },this));
+        view.on("mousedown", _.bind(function (ev) {
+            if(!this.joystickDrivePan){
+              return
+            }
+            this.viewCenterStart = view.center;
             // Have to use native mouse offset, because ev.delta 
             //  changes as the view is scrolled.
-            _this.mouseNativeStart = new paper.Point(ev.event.offsetX, ev.event.offsetY);
-        });
-        view.on("mousedrag", function (ev) {
-            if (_this.viewCenterStart) {
-                var nativeDelta = new paper.Point(ev.event.offsetX - _this.mouseNativeStart.x, ev.event.offsetY - _this.mouseNativeStart.y);
+            this.mouseNativeStart = new paper.Point(ev.event.offsetX, ev.event.offsetY);
+        },this));
+        view.on("mousedrag", _.bind(function (ev) {
+            if(!this.joystickDrivePan){
+              return
+            }
+            if (this.viewCenterStart) {
+                var nativeDelta = new paper.Point(ev.event.offsetX - this.mouseNativeStart.x, ev.event.offsetY - this.mouseNativeStart.y);
                 // Move into view coordinates to subract delta,
                 //  then back into project coords.
-                view.center = view.viewToProject(view.viewToProject(_this.viewCenterStart)
-                    .subtract(nativeDelta));
+                view.center = view.viewToProject(this.viewCenterStart)
+                    .subtract(nativeDelta);
             }
-        });
-        view.on("mouseup", function (ev) {
-            if (_this.mouseNativeStart) {
-                _this.mouseNativeStart = null;
-                _this.viewCenterStart = null;
+        },this));
+        view.on("mouseup", _.bind(function (ev) {
+          if(!this.joystickDrivePan){
+              return
             }
-        });
+            if (this.mouseNativeStart) {
+                this.mouseNativeStart = null;
+                this.viewCenterStart = null;
+            }
+        },this));
 
 var mc = new Hammer.Manager(view.element);
 
@@ -575,7 +668,7 @@ var currentDeltaY = null;
 // });
 
 // Handles pinch and pan events/transforming at the same time;
-mc.on("pinch pan", function (event) {
+mc.on("pinch pan", _.bind(function (event) {
 
     var transforms = [];
 
@@ -590,9 +683,9 @@ mc.on("pinch pan", function (event) {
     var y=event.offsetY||event.center.y||view.center.y
     var mousePosition = new paper.Point(x, y);
     currentScale=currentScale-1
-    //_this.changeZoomCentered(currentScale,mousePosition)
+    //this.changeZoomCentered(currentScale,mousePosition)
     //alert(currentScale)
-    _this.pan(currentDeltaX,currentDeltaY)
+    this.pan(currentDeltaX,currentDeltaY)
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
@@ -603,10 +696,10 @@ mc.on("pinch pan", function (event) {
     //transforms.push('translate({0}px,{1}px)'.format(currentDeltaX, currentDeltaY));
     //webpage.style.transform = transforms.join(' ');
 
-});
+},this));
 
 
-mc.on("panend pinchend", function (event) {
+mc.on("panend pinchend", _.bind(function (event) {
 
     // Saving the final transforms for adjustment next time the user interacts.
     adjustScale = currentScale;
@@ -617,7 +710,7 @@ mc.on("panend pinchend", function (event) {
     event.stopImmediatePropagation()
     event.gesture.stopPropagation()
     event.gesture.preventDefault()
-});
+},this));
 
 
 
@@ -641,16 +734,51 @@ mc.on("panend pinchend", function (event) {
     });
 
     ViewZoom.prototype.pan= function(deltaX, deltaY, factor) {
-        var offset= new paper.Point(deltaX, -deltaY);
-        console.info('factor',factor)
+
+        var offset;
+        if(deltaX.className=='Point'){
+          offset=deltaX
+          factor=deltaY
+          deltaX=offset.x
+          deltaY=offset.y
+        }else{
+          offset = new paper.Point(deltaX, deltaY);
+        }
         if(factor){
           offset = offset.multiply(factor);
         }
         offset=offset*(1/ (this.layerScale||view.zoom)) //inverse proportion to zoom level (makes zooming out pan faster)
-        var pt = view.center.add(offset);
-        view.center=pt
-        return pt
+        var newPoint= this.panTo(view.center.add(offset))
+        if(!newPoint){ //if we didn't move then show the old position
+          return view.center
+        }
+        return newPoint
       };
+
+    ViewZoom.prototype.panTo= function(X, Y) {
+        var point
+        if(X.className=='Point'){
+          point=X
+          X=point.x
+          Y=point.y
+        }else{
+          point = new paper.Point(X, Y);
+        }
+        //TODO if x or y is greater than 1000000 force refresh
+        if(!debug && point.x>1000000 || point.y>1000000 || point.x<-1000000 || point.y<-1000000){
+          setCoordsInURLDebounced.cancel && setCoordsInURLDebounced.cancel()
+          setCoordsInURL(room,X,Y)
+
+          //TODO reinitialize everything properly
+          location.reload()
+          return 
+        }
+        setCoordsInURLDebounced(room,X,Y)
+        view.center = point;
+        return view.center
+      };
+
+
 
     /**
      * Set zoom level.
@@ -675,6 +803,7 @@ mc.on("panend pinchend", function (event) {
               //this.layerScale=zoom
             }else{
               view.zoom = zoom;
+              setCoordsInURLDebounced()
             }
             return zoom;
         }
@@ -703,8 +832,7 @@ mc.on("panend pinchend", function (event) {
         }
         return [this._minZoom, this._maxZoom];
     };
-    ViewZoom.prototype.changeZoomCentered = function (delta, mousePos,factor) {
-
+    ViewZoom.prototype.changeZoomCentered= function (delta, mousePos,factor) {
         if (!delta) {
             return;
         }
@@ -747,7 +875,7 @@ mc.on("panend pinchend", function (event) {
     return ViewZoom;
 }());
 
-
+var canvas,mainProject;
 $(document).ready(function() {
   var drawurl = window.location.href.split("?")[0]; // get the drawing url
   $('#embedinput').val("<iframe name='embed_readwrite' src='" + drawurl + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400></iframe>"); // write it to the embed input
@@ -756,26 +884,30 @@ $(document).ready(function() {
     background: "#eee"
   }); // set the drawtool css to show it as active
 
-  $('#myCanvas').bind('mousewheel DOMMouseScroll', function(event) {
-    // // var point = paper.DomEvent.getOffset(event, $('#canvas')[0]);
-    // // //With this I can then convert to project space using view.viewToProject():
-    // // point = paper.view.viewToProject(point);
-    // // var delta = event.detail||event.wheelDelta
-    // // scrolled(point, -event.wheelDelta);
 
-    //     var mousePosition, newZoom, offset, viewPosition, _ref1;
-    //     if (event.shiftKey) {
-    //       view.center = panAndZoom.changeCenter(view.center, event.deltaX, event.deltaY, event.deltaFactor);
-    //       return event.preventDefault();
-    //     } else if (event.altKey) {
-    //       mousePosition = new paper.Point(event.offsetX, event.offsetY);
-    //       viewPosition = view.viewToProject(mousePosition);
-    //       _ref1 = panAndZoom.changeZoom(view.zoom, event.deltaY, view.center, viewPosition), newZoom = _ref1[0], offset = _ref1[1];
-    //       view.zoom = newZoom;
-    //       view.center = view.center.add(offset);
-    //       event.preventDefault();
-    //       return view.draw();
-    //     }
+  canvas=$('#myCanvas')
+  mainProject=paper.project
+  mainProject.activate()
+  // canvas.bind('mousewheel DOMMouseScroll', function(event) {
+  //   // // var point = paper.DomEvent.getOffset(event, $('#canvas')[0]);
+  //   // // //With this I can then convert to project space using view.viewToProject():
+  //   // // point = paper.view.viewToProject(point);
+  //   // // var delta = event.detail||event.wheelDelta
+  //   // // scrolled(point, -event.wheelDelta);
+
+  //   //     var mousePosition, newZoom, offset, viewPosition, _ref1;
+  //   //     if (event.shiftKey) {
+  //   //       view.center = panAndZoom.changeCenter(view.center, event.deltaX, event.deltaY, event.deltaFactor);
+  //   //       return event.preventDefault();
+  //   //     } else if (event.altKey) {
+  //   //       mousePosition = new paper.Point(event.offsetX, event.offsetY);
+  //   //       viewPosition = view.viewToProject(mousePosition);
+  //   //       _ref1 = panAndZoom.changeZoom(view.zoom, event.deltaY, view.center, viewPosition), newZoom = _ref1[0], offset = _ref1[1];
+  //   //       view.zoom = newZoom;
+  //   //       view.center = view.center.add(offset);
+  //   //       event.preventDefault();
+  //   //       return view.draw();
+  //   //     }
 
 
 
@@ -783,7 +915,7 @@ $(document).ready(function() {
 
 
 
-  });
+  // });
 
   // var drawingPNG = localStorage.getItem("drawingPNG"+room)
 
@@ -900,16 +1032,17 @@ $('#colorToggle').on('click', function() {
   }
 });
 
-$('#clearImage').click(function() {
-  var p = confirm("Are you sure you want to clear the drawing for everyone?");
-  if (p) {
+  $('#clearCanvas').click(function(){
     clearCanvas();
     socket.emit('canvas:clear', room);
-  }
+    $('#clearCanvasPopup').fadeToggle()
+  })
+$('#clearImage').click(function() {
+  $('#clearCanvasPopup').fadeToggle()
 });
 
 $('.toggleBackground').click(function() {
-  $('#myCanvas').toggleClass('whiteBG');
+  canvas.toggleClass('whiteBG');
 });
 
 // --------------------------------- 
@@ -917,9 +1050,7 @@ $('.toggleBackground').click(function() {
 
 
 var send_paths_timer;
-var timer_is_active = false;
 var paper_object_count = 0;
-var mouseTimer = 0; // used for getting if the mouse is being held down but not dragged IE when bringin up color picker
 var mouseClickHeld; // global timer for if mouse is held.
 
 
@@ -1017,7 +1148,6 @@ Pencil.prototype.onMouseDown=function(event){
         // The data we will send every 100ms on mouse drag
         path_to_send = {
           name: path.name,
-          rgba: active_color.components,
           start: view.projectToView(path.lastSegment.point),
           path: [],
           pathData:path.pathData,
@@ -1091,25 +1221,175 @@ Pencil.prototype.onMouseUp=function(event){
     }
 
 
+// create a SpringSystem and a Spring with a bouncy config.
+var springSystem = new rebound.SpringSystem();
+var mouseDragSpring = springSystem.createSpring(50, 3);
+var mouseClickSpring= springSystem.createSpring(50, 3);
+
+
 var Select=function(){
   this.item_move_delta;
   this.send_item_move_timer;
   this.item_move_timer_is_active = false;
+  /*
+  this.visualMouseQueEnter=function(event){
+    var item = event.target
+    if(!item){
+      return
+    }
+
+    var cache = item.cache = (item.cache||{})
+    cache=cache[this.name]=(cache[this.name]||{})
+
+    if(cache.defaultApplyMatrix==null){
+      cache.defaultApplyMatrix=item.applyMatrix
+      applyMatrix=false
+    }
+
+    if(!cache.mouseOverSpring){
+      cache.mouseOverSpring = springSystem.createSpring(50, 3)
+      cache.mouseOverSpring.addListener({
+        onSpringUpdate:function(spring){
+          view.draw()
+          var val = spring.getCurrentValue();
+          val = rebound.MathUtil.mapValueInRange(val, 0, 1, 1, 1.05);
+
+
+          if(val>1.05){
+            spring.setEndValue(0)
+          }
+            // if(previousClone){
+            //   previousClone.remove()
+            // }
+            // previousClone=item.clone()
+            // previousClone.scale(val)
+             item.matrix.reset()
+             item.scale(val)
+            // item.strokeColor=item.selectedColor||item.parent.selectedColor || project.currentStyle.selectedColor ||new Color('blue')
+            // item.strokeWidth=val*.30
+            // item.dashArray=[val,10]
+
+            //min,input,max
+            // var limit=.10
+            // val=Math.max(0,Math.min(val,1))
+            // var first=Math.max(0,Math.min(val-limit,1))
+            // var second=Math.max(0,Math.min(val+limit,1))
+
+
+            // var streak = cache.fillColor.clone()
+            // streak.alpha=0
+            // console.log(first,val,second)
+            // item.fillColor= {
+            //     gradient: {
+            //         stops: [[cache.fillColor, first], [streak,val], [cache.fillColor,second]]
+            //     },
+            //     origin: item.bounds.topLeft,
+            //     destination: item.bounds.bottomRight
+            // }
+            view.draw()
+
+            // item.style.mozTransform =
+            // item.style.msTransform =
+            // item.style.webkitTransform =
+            // item.style.transform = 'scale3d(' +
+            //   val + ', ' + val + ', 1)';
+  
+        }
+        ,onSpringAtRest:function(spring){
+            //spring.setEndValue(0)
+            //item.fillColor=cache.fillColor
+        }
+     });
+    }
+
+    cache.fillColor=item.fillColor
+    // if(cache.over){
+    //   return
+    // }
+    //cache.over=true
+    cache.mouseOverSpring.setEndValue(1)
+  }
+  this.visualMouseQueLeave=function(event){
+    var item = event.target
+    var cache = item.cache = (item.cache||{})
+    cache=cache[this.name]
+    if(!cache){
+      return
+    }
+    item.fillColor=cache.fillColor
+    cache.mouseOverSpring.setEndValue(0)
+    cache.over=false
+  }
+*/
 }
 Select.prototype.constructor=Select;
 Select.prototype.name='select'
+Select.prototype.init=function(){
+  //project.activeLayer.on('mouseenter',this.visualMouseQueEnter)
+  //project.activeLayer.on('mouseleave',this.visualMouseQueLeave)
+}
+Select.prototype.denit=function(){
+  //project.activeLayer.off('mouseenter',this.visualMouseQueEnter)
+  //project.activeLayer.off('mouseleave',this.visualMouseQueLeave)
+}
+
 Select.prototype.onMouseDown=function(event){
+  // this.dragging=false
+
+
+  // // Add a listener to the spring. Every time the physics
+  // // solver updates the Spring's value onSpringUpdate will
+  // // be called.
+
+  // var mouseDown=false
+  // // Listen for mouse down/up/out and toggle the
+  // //springs endValue from 0 to 1.
+  // // item.attach('mouseenter',function(){
+  // //   spring.setEndValue(.1)
+  // // })
+  // item.attach('mousedown', function() {
+  //   console.log('moooouseee')
+  //   if(mouseDown){
+  //     return 
+  //   }
+  //   mouseDown=true
+  //   mouseClickSpring.setEndValue(.5);
+  // });
+
+  // item.attach('mouseleave', function() {
+  //   mouseDown=false
+  //   mouseClickSpring.setEndValue(0);
+  // });
+
+  // item.attach('mouseup', function() {
+  //   mouseDown=false
+  //   mouseClickSpring.setEndValue(0);
+  // });
+
+
+
+
+
+
+
 
     // Select item
-    $("#myCanvas").css("cursor", "pointer");
+    canvas.css("cursor", "pointer");
     if (event.item) {
       // If holding shift key down, don't clear selection - allows multiple selections
       if (!event.modifiers.shift) {
-        paper.project.activeLayer.selected = false;
+        for(var i=0,l=project.layers.length;i<l;i++){
+          var layer = project.layers[i]
+          layer.selected = false;
+        }
       }
       event.item.selected = true;
+      console.log('event.item.name',event.item.name)
     } else {
-      paper.project.activeLayer.selected = false;
+        for(var i=0,l=project.layers.length;i<l;i++){
+          var layer = project.layers[i]
+          layer.selected = false;
+        }
     }
 
 
@@ -1139,7 +1419,7 @@ Select.prototype.onMouseDown=function(event){
     //   }
     }
 Select.prototype.onMouseDrag=function(event){
-          // Move item locally
+        // Move item locally
         for (x in paper.project.selectedItems) {
           var item = paper.project.selectedItems[x];
           item.position += event.delta;
@@ -1191,33 +1471,52 @@ Select.prototype.onMouseUp=function(event){
       }
 
 
+// var Snap=function(){
+
+// }
+// Snap.prototype.updateBounds=function(item){
+//   var json=item.toJSON();
+//   //removing segments
+//   for(var i=0,l=json.length;i<l;i++){
+//     var segments= json[i].segments
+//     if(segments){ //currently only scrubbing the segments away
+//       //json.segments=segments 
+//       delete json[i].segments
+//     }
+//   }
+// }
 
 
-  tool.minDistance = 10;
-  window.view=view
-
-function pathToObject(o){
-  return {
-    pathData:o.pathData
-    ,strokeColor:o.strokeColor
-    ,strokeWidth:o.strokeWidth
-    ,fillColor:o.fillColor
+function getBounds(item){
+  if(!item){
+    return undefined
+  }else if(item.bounds){
+    return item.bounds.toJSON()
+  }else if(item.className=='Point'){
+    return ['Rectangle',item.x,item.y,0,0] //emulate rectangle
+  }else{
+    throw 'error cant get bounds of className'+item.className
   }
 }
 
-var path;
-var brushes={
-  draw:{
-    name:'draw'
+
+
+var brushes={}
+function addBrush(brush){
+  if(brushes[brush.name]){
+    throw 'already added brush'+brush.name
+  }
+  brushes[brush.name]=brush
+}
+addBrush({name:'draw'
     ,poll:function(data){
       var st = JSON.stringify(data)
       data.path= new Array();
       return st
     }
     ,onMouseDown:function(event){
-       path = new Path();
-       path.closed=true
-       console.log(event.button)
+       this.path = new Path();
+       this.path.closed=true
        var strokeColor;
        switch(event.button){
         case 'primary':
@@ -1227,52 +1526,52 @@ var brushes={
           //strokeColor = new Color(255, 0,255, 100);
           radialMenu.show(event)
           return
-          default:
-            return
+        default:
+          return
         }
-        path.fillColor=strokeColor
+        this.path.fillColor=strokeColor
 
-        path.add(event.point);
-        path.name = uid + ":" + (++paper_object_count);
+        this.path.add(event.point);
+        this.path.name = uid + ":" + (++paper_object_count);
 
 
         // The data we will send every 100ms on mouse drag
-        path_to_send = {
-          name: path.name,
-          rgba: strokeColor.components,
-          start: project.activeLayer.localToGlobal(path.lastSegment.point),
+       path_to_send={
+          name: this.path.name,
+          init: this.path.toJSON(),
+          //start: project.activeLayer.localToGlobal(this.path.lastSegment.point),
           path: [],
-          pathData:path.pathData,
-          tool: brush.name
+          attributes: this.path.toJSON(),
+          tool: this.name,
+          bounds:this.path.bounds
         };
     }
     ,onMouseDrag:function(event){
 
     var step = event.delta / 2;
     step.angle += 90;
-    var top = event.middlePoint + step;
-    var bottom = event.middlePoint - step;
+    var bottom = event.middlePoint + step;
+    var top = event.middlePoint - step;
 
 
 
-    path.add(top);
-    path.insert(0, bottom);
-    path.smooth();
+    this.path.add(top);
+    this.path.insert(0, bottom);
+    this.path.smooth();
 
 
     // Add data to path
     path_to_send.path.push({
-      top: project.activeLayer.localToGlobal(path.lastSegment.point),
-      bottom: project.activeLayer.localToGlobal(path.firstSegment.point)
+      top: project.activeLayer.localToGlobal(this.path.lastSegment.point),
+      bottom: project.activeLayer.localToGlobal(this.path.firstSegment.point)
     });
-    path_to_send.pathData=path.data
-
+    path_to_send.bounds=this.path.bounds
   },onMouseUp:function(event){
        // Close the users path
-    path.add(event.point);
+    this.path.add(event.point);
 
-    path.remove()
-    var poly = simplePoly(path)
+    this.path.remove()
+    var poly = simplePoly(this.path)
 
     // for (var i = 0; i < intersections.length; i++) {
     //     var intersectionPath = new Path.Circle({
@@ -1284,8 +1583,9 @@ var brushes={
 
 
     // Send the path to other users
-    path_to_send.end = view.viewToProject(path.lastSegment.point);
-    path_to_send.pathData = path.pathData
+    path_to_send.end = view.viewToProject(this.path.lastSegment.point);
+    path_to_send.attributes = this.path.toJSON()
+    path_to_send.bounds=this.path.bounds
     // This covers the case where paths are created in less than 100 seconds
     // it does add a duplicate segment, but that is okay for now.
     socket.emit('draw:progress', room, uid, JSON.stringify(path_to_send));
@@ -1296,20 +1596,369 @@ var brushes={
 
   }
 
+  })
 
-  },
 
-  paint:{
-    name:'paint',
-    poll:function(data,force){
-       if(!force &&Math.abs(path.area)<500){
-         return
-       }
-      var glob = path
-      var middleIndex=Math.floor((0 + glob.segments.length)/2)
-      var start=middleIndex
-      var end=glob.segments.length
-     // glob.smooth({type:'continuous',from:middleIndex,to:glob.segments.length-1})
+
+function PaintBrush(color) {
+    this.name='paint'
+    this.color=color
+  }
+PaintBrush.prototype.constructor=PaintBrush
+//GLOB CREATION
+// PaintBrush.prototype.poll=function(data,forceEnd){
+//     if(!this.masterGlob){
+//         this.defaultLayer.activate()
+//         this.masterGlob=this.path.clone()
+//         this.masterGlob.closed=true
+//         this.masterGlob.visible=false
+//         this.masterGlob.fillColor='red'
+//         this.masterGlob.name=this.baseStokeName
+//         return
+//       }
+
+
+
+//        if(!forceEnd && Math.abs(this.path.area)<500){
+//          return
+//        }
+
+//       this.debugLayer.activate()
+//       var glob = this.path.clone()
+//       glob.closed=true
+//       ///DONT TOUCH!!!////
+//       var mid=bottomMiddle=topMiddle=Math.floor((0 + glob.segments.length)/2)
+//       // if(window.lastMousePosition){
+//       //   glob.insert(0,lastMousePosition.point)
+//       //   glob.add(lastMousePosition.point)
+//       // }else{
+//       //   console.error('no mouse position')
+//       // }
+//       var even = glob.segments.length%2==0
+//       if(even){ //even
+//         topMiddle=topMiddle
+//         bottomMiddle=bottomMiddle-1
+//       }
+//       if(forceEnd){
+//         bottomMiddle--
+//       }
+//       ///DONT TOUCH!!!////
+
+
+//       var bottomStart=(0)
+//       var bottomEnd=(bottomMiddle)
+//       var topStart=(topMiddle)
+//       var topEnd=(glob.segments.length-1)
+      
+//       // if(even){
+//       //   bottomStart++
+//       //   topStart--
+//       // }
+
+
+//       new Path.Circle({
+//                center: glob.segments[topStart].point+{x:0,y:-28},
+//                radius: 4,
+//                fillColor: 'darkgreen',
+//                strokeColor:'black'
+//            });
+//         new Path.Circle({
+//                center: glob.segments[topEnd].point+{x:0,y:-8},
+//                radius: 8,
+//                fillColor: 'darkred',
+//                strokeColor:'black'
+//            });
+
+//       new Path.Circle({
+//                center: glob.segments[bottomStart].point+{x:0,y:0},
+//                radius: 3,
+//                fillColor: 'green'
+//            });
+//         new Path.Circle({
+//                center: glob.segments[bottomEnd].point+{x:0,y:0},
+//                radius: 4,
+//                fillColor: 'red'
+//            });
+
+
+
+
+//              // glob.smooth({type:'continuous',from:middleIndex,to:glob.segments.length-1})
+//         // for(var i=start,l=end;i<l;i++){
+//         //   if(!glob.segments[i].smooth){
+//         //     console.log('@@@@',i,'@@@',glob,glob.segments[i],glob.segments[i].smooth)
+//         //    new Path.Circle({
+//         //        center: glob.segments[i].point,
+//         //        radius: 1,
+//         //        fillColor: 'red'
+//         //    });
+//         //   }else{
+//         //     glob.segments[i]&&glob.segments[i].smooth()
+//         //   }
+//         // }
+//        // odd=!odd
+//       //if(middleIndex==glob.segments.length-middleIndex && odd){
+
+//       if(forceEnd){
+//         glob.smooth('catmull-rom')
+//       }else{
+//         glob.smooth({type:'catmull-rom',from:topStart,to:topEnd})
+//         glob.smooth({type:'catmull-rom',from:bottomStart,to:bottomEnd})
+//       }
+        
+//         // var segs=glob.removeSegments(middleIndex,end) //TODO when paperjs supports path.smooth({from:middleIndex,to:end}) use that instead
+//         // if(segs.length){
+//         //   //console.info('new selection')
+//         //   var p=new Path(segs)
+//         //   //console.info('p',p.segments.length,p)
+//         //   //if(this.lastBottomLineSegments){
+//         //   //  p.insertSegments(0,this.lastBottomLineSegments)
+//         //   //}
+//         //   //this.lastBottomLineSegments=segs;
+//         //   //console.info('p',p.segments.length,p)
+
+//         //   //p.applyMatrix=false
+//         //   p.smooth('catmull-rom')
+          
+//         //   //segs=p.removeSegments( p.segments.length-(end-start) )
+//         //   //console.info('p',p.segments.length,p)
+//         //   //DEV NOTE if you try the append previous line before smoothing appoach here make sure to use segs instead of p.segments
+//         //   glob.insertSegments(start,p.segments); //insert at start again
+//         //   p.remove()
+//         //   //.smooth({from:start,to:end})
+//         //   console.info('end selection')
+//         // }
+
+//       //}
+
+//       //glob.removeSegment(glob.segments.length-1)
+//       //glob.removeSegment(0)
+
+//       glob=simplePoly(glob,{replace:true})
+
+//       this.defaultLayer.activate()
+//       if(!glob){
+//         throw 'glob was removed after simplePoly funciton'
+//         return
+//       }
+  
+
+//       // this.path=new Path([glob.removeSegment(0)])
+//       // this.path.insert(1,glob.firstSegment)
+
+//       // this.path.add(glob.segments[glob.segments.length-2])
+//       // this.path.add(glob.removeSegment(glob.segments.length-1))
+
+
+//       this.path.remove()
+//       this.path=new Path()
+
+//       //this.path.addSegments([glob.firstSegment,glob.segments[1],glob.segments[glob.segments.length-2],glob.lastSegment])
+//       this.path.add(glob.firstSegment)
+//       //this.path.add(glob.segments[1].point)
+//       this.path.add(midPoint(glob.segments[1].point,glob.segments[glob.segments.length-2].point))
+//       //this.path.add(glob.segments[glob.segments.length-2].point)
+//       this.path.add(glob.lastSegment)
+//       //this.path=new Path([glob.firstSegment,glob.lastSegment])
+//       this.path.name=this.baseStokeName+':'+(++this.iGlob)
+//       this.path.fillColor='green'
+
+      
+//       var addition=this.masterGlob.unite(glob)
+//       if(!addition || addition.area<=this.masterGlob.area){
+//         addition.remove()
+//         console.warn('not significant addition')
+//         return 
+//       }
+
+//       //addition replaces masterGlob
+//       addition.name=this.masterGlob.name 
+//       this.masterGlob.remove()
+//       this.masterGlob=addition
+
+//       if(forceEnd){
+//         //this.masterGlob.smooth()
+//       }
+
+//       //debug cleanup
+//       glob.strokeColor=debugStrokeColor
+//       glob.fillColor=debugFillColor
+
+//       //data.globs.push(glob.pathData)
+//       var st = JSON.stringify(data) //take a snapshot
+//       data.globs= []
+
+//       this.lastGlob=glob
+//       return st
+//     }
+function calculateMids(array,offset){
+      var ans={
+          even:array.length%2==0
+        }
+      ans.middle=ans.bottomMiddle=ans.topMiddle=Math.floor((0 + array.length)/2) //if odd all mids are same
+      if(ans.even){ //even then move the bottom down one
+        ans.bottomMiddle=ans.bottomMiddle-1
+      }
+      if(offset){
+        ans.offset=offset
+        ans.bottomMiddle=ans.bottomMiddle-offset
+        ans.topMiddle=ans.topMiddle+offset
+      }
+      ans.length=array.length
+      return ans
+}
+window.web=window.web||{}
+web.debuggOnCall=function(message,count){
+  console.warn(message,count)
+  var i= (web.debugOnCall.cache[message]||0)
+  web.debugOnCall.cache[message]=i
+  if(i==count){
+    debugger
+  }
+}
+web.debuggOnCall.cache={}
+ggg=0
+//streak Creation
+PaintBrush.prototype.glob=function(data,forceEnd){
+      debug && (this.path.selected=true)
+      var minGlobLength=10
+
+
+      if(forceEnd){
+        this.iStablePathLength=this.spline.segments.length
+      }
+      
+      var additionLength=Math.min(this.iStablePathLength-this.masterGlobTheoreticalLength,10)
+
+      var isEndGlob=forceEnd&&this.masterGlobTheoreticalLength+additionLength==this.spline.segments.length
+      var isFirstGlob=!this.masterGlobTheoreticalLength
+
+
+      if(!forceEnd&&additionLength<minGlobLength){
+          return
+      }
+      // if(forceEnd){
+      //   //if(additionLength<minGlobLength){
+      //   //  this.topStableIndex=this.topMiddle+(this.iStablePathLength-1)
+      //   //  this.bottomStableIndex=0
+      //   //}
+      // }else{
+
+        this.topStableIndex=this.topMiddle+this.masterGlobTheoreticalLength+(additionLength-1) //DO NOT CHANGE!
+        this.bottomStableIndex=Math.max(this.bottomMiddle-(this.masterGlobTheoreticalLength+(additionLength-1)),0) //DO NOT CHANGE!!!
+      //}
+
+      this.debugLayer.activate()
+       //debugger
+      var glob = new Path()
+      glob.name=this.baseStokeName+':'+(++this.iGlob)
+      glob.closed=true
+
+
+      window.path=this.path
+
+      // ggg++
+      // if(ggg==1){
+      //   debugger
+      // }
+
+
+      // var bottomStart=(0)
+      // var bottomEnd=(mids.bottomMiddle)
+      // var topStart=(mids.topMiddle)
+      // var topEnd=(mids.length-1)
+
+
+
+      // new Path.Circle({
+      //          center: this.path.segments[topStart].point+{x:0,y:-28},
+      //          radius: 4,
+      //          fillColor: 'darkgreen',
+      //          strokeColor:'black'
+      //      });
+      //   new Path.Circle({
+      //          center: this.path.segments[topEnd].point+{x:0,y:-8},
+      //          radius: 8,
+      //          fillColor: 'darkred',
+      //          strokeColor:'black'
+      //      });
+
+      // new Path.Circle({
+      //          center: this.path.segments[bottomStart].point+{x:0,y:0},
+      //          radius: 3,
+      //          fillColor: 'green'
+      //      });
+      //   new Path.Circle({
+      //          center: this.path.segments[bottomEnd].point+{x:0,y:0},
+      //          radius: 4,
+      //          fillColor: 'red'
+      //      });
+
+
+      var tpart=this.topMiddle+this.masterGlobTheoreticalLength
+      var bpart=this.bottomMiddle-(this.masterGlobTheoreticalLength)
+
+      if(!isFirstGlob){ //only run on subsequent calls
+        tpart-=1
+        bpart+=1
+      }
+
+      new Path.Circle({
+               center: this.path.segments[tpart].point+{x:0,y:0},
+               radius: 4,
+               fillColor: 'blue',
+               strokeColor:'green'
+           });
+     new Path.Circle({
+               center: this.path.segments[this.topStableIndex].point+{x:0,y:0},
+               radius: 4,
+               fillColor: 'blue',
+               strokeColor:'red'
+           });
+
+      var topSegments=this.path.segments.slice(tpart,this.topStableIndex+1)
+      var bottomSegments=this.path.segments.slice(this.bottomStableIndex,bpart+1)
+
+      //remove the handle curves from the last ones so we dont have anything potentially poking out
+      if(!isEndGlob){ //dont run this bit of code at the end
+        console.log('rightFlat')
+        bottomSegments[0].handleIn=null
+        topSegments[topSegments.length-1].handleOut=null
+      }
+      if(!isFirstGlob){ //dont run this bit of code at the beginning
+        debugger
+        console.log('leftFlat')
+        topSegments[0].handleIn =null
+        bottomSegments.length && (bottomSegments[bottomSegments.length-1].handleOut=null)
+      }
+      //topSegments[0].handleOut=null
+      //topSegments[topSegments.length-1].handleIn 
+      //if(!forceEnd){
+        //bottomSegments[0].handleOut=null
+        //bottomSegments[bottomSegments.length-1].handleIn=null
+      //}
+
+
+      if(topSegments[0]==bottomSegments[bottomSegments.length-1]){ //this does not happen now because I offset top and middle vars with this.masterGlobTheoreticalLength
+        bottomSegments.pop()
+      }else if(forceEnd && topSegments[topSegments.length-1]==bottomSegments[0]){
+        bottomSegments.shift()
+      }
+
+      // if(this.taperStart && this.masterGlob.className=='Path'&&this.masterGlob.segments.length==1){ //detect that masterglob is a point and we are starttapper
+      //   alert('put start taper on')
+      //   bottomSegments.push(this.path.segments[this.topMiddle])
+      // }
+
+      glob.addSegments(bottomSegments)
+      glob.addSegments(topSegments)
+
+
+
+
+
+
+             // glob.smooth({type:'continuous',from:middleIndex,to:glob.segments.length-1})
         // for(var i=start,l=end;i<l;i++){
         //   if(!glob.segments[i].smooth){
         //     console.log('@@@@',i,'@@@',glob,glob.segments[i],glob.segments[i].smooth)
@@ -1324,55 +1973,437 @@ var brushes={
         // }
        // odd=!odd
       //if(middleIndex==glob.segments.length-middleIndex && odd){
-new Path.Circle({
-               center: glob.segments[start].point+{x:0,y:6},
-               radius: 2,
+
+      // if(forceEnd){
+      //   glob.smooth('catmull-rom')
+      // }else{
+      //   glob.smooth({type:'catmull-rom',from:topStart,to:topEnd})
+      //   glob.smooth({type:'catmull-rom',from:bottomStart,to:bottomEnd})
+      // }
+        
+        // var segs=glob.removeSegments(middleIndex,end) //TODO when paperjs supports path.smooth({from:middleIndex,to:end}) use that instead
+        // if(segs.length){
+        //   //console.info('new selection')
+        //   var p=new Path(segs)
+        //   //console.info('p',p.segments.length,p)
+        //   //if(this.lastBottomLineSegments){
+        //   //  p.insertSegments(0,this.lastBottomLineSegments)
+        //   //}
+        //   //this.lastBottomLineSegments=segs;
+        //   //console.info('p',p.segments.length,p)
+
+        //   //p.applyMatrix=false
+        //   p.smooth('catmull-rom')
+          
+        //   //segs=p.removeSegments( p.segments.length-(end-start) )
+        //   //console.info('p',p.segments.length,p)
+        //   //DEV NOTE if you try the append previous line before smoothing appoach here make sure to use segs instead of p.segments
+        //   glob.insertSegments(start,p.segments); //insert at start again
+        //   p.remove()
+        //   //.smooth({from:start,to:end})
+        //   console.info('end selection')
+        // }
+
+      //}
+
+      //glob.removeSegment(glob.segments.length-1)
+      //glob.removeSegment(0)
+
+      glob=simplePoly(glob,{replace:true})
+
+      this.defaultLayer.activate()
+      if(!glob){
+        throw 'glob was removed after simplePoly funciton'
+        return
+      }
+  
+
+
+
+      var addition;
+      //if(this.masterGlob.className=='Path'&&this.masterGlob.segments.length==1){
+
+        // addition=glob.clone()
+        // addition.insertSegments(bottomSegments.length,this.masterGlob.segments)
+        //      new Path.Circle({
+        //        center: this.masterGlob.segments[0].point+{x:0,y:0},
+        //        radius: 3,
+        //        fillColor: 'blue'
+        //    });
+        //     addition.smooth('catmull-rom')
+      //}else{
+        addition=this.masterGlob.unite(glob)
+        if(!addition || addition.area<=this.masterGlob.area){
+          alert()
+          addition.remove()
+          console.warn('not significant addition')
+          return 
+        }else{
+          //addition replaces masterGlob
+          addition.name=this.masterGlob.name 
+          this.masterGlob.remove()
+          this.masterGlob=addition
+        }
+      //}
+      debugger
+      this.stablePathCounts.fill(null,this.masterGlobTheoreticalLength,this.masterGlobTheoreticalLength+additionLength)
+      this.masterGlobTheoreticalLength=this.masterGlobTheoreticalLength+additionLength;
+      //console.info(stablePathCounts[this.iStablePathLength])
+
+
+      //debug cleanup
+      glob.strokeColor=debugStrokeColor
+      glob.fillColor=debugFillColor
+
+      //data.globs.push(glob.pathData)
+      var st = JSON.stringify(data) //take a snapshot
+      data.globs= []
+
+      this.lastGlob=glob
+
+      debugger
+      if(forceEnd && !isEndGlob){
+        st=this.glob(data,'force')
+      }
+      return st
+    }
+PaintBrush.prototype.onMouseDown=function(event,spline){
+      //create a debug layer. Debug layer will serve as a dumping gound for all the
+      // artifacts we create in paperjs. It is also helpful for debuging. doublespeak name.
+      this.defaultLayer=project.activeLayer
+      this.debugLayer=new Layer()
+      this.debugLayer.name='debug:globs'
+      this.debugLayer.visible=debug
+
+      //set variables
+      this.iGlob=0
+      this.masterGlob=null
+      this.masterGlobTheoreticalLength=0
+      this.lastGlob=null
+      this.lastBottomLineSegments=null
+      this.taperStart=true
+      this.taperEnd=true
+
+      //just use spline.segments.length
+      window.stablePathCounts=this.stablePathCounts=[] 
+      this.iStablePathLength=0
+
+      this.topMiddle=0
+      this.bottomMiddle=0
+      this.topStableIndex=0
+      this.bottomStableIndex=0
+
+      //create spline
+      this.spline = new Path(); //this is the base data spline.
+      this.spline.strokeColor=new Color(255, 0,255, 1);
+      this.spline.add(event.point)
+      //this.spline.data.timeStamp=event.timeStamp
+      this.spline.data.timeDelta=[event.timeStamp-this.spline.data.timeStamp]
+
+
+      this.defaultLayer.activate()
+      //init path that will be used to create globs
+      this.path = new Path();
+      this.path.fillColor=this.color;
+      this.path.closed=true
+
+      this.path.add(event.point);
+      this.baseStokeName= uid + ":" + (++paper_object_count)
+      this.path.name = this.baseStokeName+':'+(this.iGlob)
+
+      this.masterGlob=this.path.clone()
+      this.masterGlob.closed=true
+      this.masterGlob.visible=false
+      this.masterGlob.fillColor='red'
+      this.masterGlob.name=this.baseStokeName
+
+
+
+        // The data we will send every 100ms on mouse drag
+       return {
+          timeStamp:Date.now(),
+          artist:uid,
+          name: this.baseStokeName,
+          tool: brush.name,
+          object:this.path,
+          spline:this.spline,
+          significantGlobIndexes:[],
+          bounds:getBounds(this.path)
+          //pathData:path.pathData, //DONT do path data until it is finished
+          //path: [],
+        };
+    }
+
+PaintBrush.prototype.onMouseDrag=function(event){
+    this.spline.add(event.point)
+    this.spline.data.timeDelta.push(event.timeStamp-this.spline.data.timeStamp)
+    
+    var step = event.delta / 2;
+    step.angle += 90;
+    var bottom = event.middlePoint + step;
+    var top = event.middlePoint - step;
+
+    this.path.add(top);
+    this.path.insert(0, bottom);
+
+    //set middles
+    var l=this.path.segments.length,m=Math.floor(l/2);
+    if(l-1%2==0){ //even then start top and bottom
+      this.topMiddle=m
+      this.bottomMiddle=m-1
+    }else{ //odd then start them both on the same
+      this.topMiddle=m
+      this.bottomMiddle=m
+    }
+
+    var previousPath=this.path.clone()
+    this.path.smooth() //TODO dont smooth the whole line
+
+    //because of the data structure i chose both top and bottom must be static for n number of counts
+    var n=2
+    //counts from middle to end where t is iter
+    //counts from middle to beginning where b is iter
+    for(var i=this.iStablePathLength,t=this.topMiddle+i,b=this.bottomMiddle-(i-1);t<l;i++,b--,t++){
+      //console.log('l',l,'m',m,'t',t,'b',b)
+      if(
+        previousPath.segments[t].handleIn==this.path.segments[t].handleIn
+        &&previousPath.segments[t].handleOut==this.path.segments[t].handleOut
+        &&previousPath.segments[b].handleIn==this.path.segments[b].handleIn
+        &&previousPath.segments[b].handleOut==this.path.segments[b].handleOut
+       ){
+        this.stablePathCounts[i]=(this.stablePathCounts[i]||0)+1 //both are stable. count up once
+        if(this.stablePathCounts[i]>=n){
+          this.iStablePathLength=Math.max(this.iStablePathLength,i+1)
+        }
+      }else{
+        this.stablePathCounts.fill(0,i) //one was off. restart count
+        this.iStablePathLength=Math.min(i+1,this.iStablePathLength)
+        break
+      }
+    }
+    previousPath.remove()
+
+    //if(this.iStablePathLength-this.masterGlobTheoreticalLength>10){
+    //  path_to_send=brush.glob(path_to_send,false)
+    //}
+    return path_to_send
+  }
+PaintBrush.prototype.onMouseUp=function(event){
+    // Close the users path
+    this.path.add(event.point);
+    //this.path.insert(0,event.point) //this would be repetitive and we use close anyway
+    this.path.smooth()
+
+    this.spline.add(event.point)
+    this.spline.data.timeDelta.push(event.timeStamp-this.spline.data.timeStamp)
+
+    var temp=this.glob(path_to_send,'force')
+    if(temp){
+      path_to_send=temp
+    }
+    socket.emit('draw:progress', room, uid, path_to_send);
+    socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    //this.masterGlob.strokeColor='green'
+    
+
+    // Stop new path data being added & sent
+    path_to_send.path = new Array();
+    !debug && this.debugLayer.remove()
+    this.masterGlob.visible=true
+    this.path.remove()
+  }
+PaintBrush.prototype.compile=function(path,data){
+    if(!path){
+      path=this.path
+    }
+      if(data.pathData){ //see what kind of data this renderer uses //pathData is assumed to be populated on end
+        path.remove() //delete current path if exists.
+        path= project.importJSON(data.attributes)//import new one.
+        path.removeSegments && path.removeSegments() //TODO make this not nessissary
+        path.parent=project.activeLayer //TODO put this in users layer or users project
+      
+        path.remove()
+      // }else if(data.globs){ //globs build upon eachother to create a pathitem or complexpath
+      //   if(!path){
+      //     path=new Path()
+      //     path.fillColor=data.rgba||data.color||this.color
+      //   }
+      //   _.forEach(data.globs,function(glob){
+      //     glob = new Path(glob)
+      //     path=path.union(glob)
+      //     path.remove()
+      //   })
+      }else if(data.spline){ //spline is the raw data that will create this shape.
+
+      }
+    return path
+    }
+PaintBrush.render=function(json,frame){
+  if(user.timeFrame=='live'){
+    if(json.pathData){ //we are live so draw it if it is done
+
+    }else if(json.spline){ //if it is in progress then handle it
+
+    }
+  }
+
+}
+
+addBrush(new PaintBrush(active_color))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+addBrush({
+    name:'glob',
+    poll:function(data,forceEnd){
+       if(!forceEnd &&Math.abs(path.area)<500){
+         return
+       }
+      var glob = path
+
+      ///DONT TOUCH!!!////
+      var mid=bottomMiddle=topMiddle=Math.floor((0 + glob.segments.length)/2)
+      if(window.lastMousePosition){
+        glob.insert(0,lastMousePosition.point)
+        glob.add(lastMousePosition.point)
+        
+      }
+
+
+      var even = glob.segments.length%2==0
+      if(even){ //even
+        topMiddle=topMiddle
+        bottomMiddle=bottomMiddle-1
+      }
+      if(forceEnd){
+        bottomMiddle--
+      }
+      ///DONT TOUCH!!!////
+
+
+      var bottomStart=(0)
+      var bottomEnd=(bottomMiddle)
+      var topStart=(topMiddle)
+      var topEnd=(glob.segments.length-1)
+      
+      // if(even){
+      //   bottomStart++
+      //   topStart--
+      // }
+
+
+      this.debugLayer.activate()
+      new Path.Circle({
+               center: glob.segments[topStart].point+{x:0,y:-28},
+               radius: 4,
+               fillColor: 'darkgreen',
+               strokeColor:'black'
+           });
+        new Path.Circle({
+               center: glob.segments[topEnd].point+{x:0,y:-8},
+               radius: 8,
+               fillColor: 'darkred',
+               strokeColor:'black'
+           });
+
+      new Path.Circle({
+               center: glob.segments[bottomStart].point+{x:0,y:0},
+               radius: 3,
                fillColor: 'green'
            });
         new Path.Circle({
-               center: glob.segments[end-1].point+{x:0,y:6},
-               radius: 3,
+               center: glob.segments[bottomEnd].point+{x:0,y:0},
+               radius: 4,
                fillColor: 'red'
            });
 
-      this.debugLayer.activate()
-        //view.draw()
-        
-        var segs=glob.removeSegments(start,end) //TODO when paperjs supports path.smooth({from:start,to:end}) use that instead
-        if(segs.length){
-          //console.info('new selection')
-          var p=new Path(segs)
-          //console.info('p',p.segments.length,p)
-          //if(this.lastBottomLineSegments){
-          //  p.insertSegments(0,this.lastBottomLineSegments)
-          //}
-          //this.lastBottomLineSegments=segs;
-          //console.info('p',p.segments.length,p)
 
-          //p.applyMatrix=false
-          p.smooth('catmull-rom')
+
+
+             // glob.smooth({type:'continuous',from:middleIndex,to:glob.segments.length-1})
+        // for(var i=start,l=end;i<l;i++){
+        //   if(!glob.segments[i].smooth){
+        //     console.log('@@@@',i,'@@@',glob,glob.segments[i],glob.segments[i].smooth)
+        //    new Path.Circle({
+        //        center: glob.segments[i].point,
+        //        radius: 1,
+        //        fillColor: 'red'
+        //    });
+        //   }else{
+        //     glob.segments[i]&&glob.segments[i].smooth()
+        //   }
+        // }
+       // odd=!odd
+      //if(middleIndex==glob.segments.length-middleIndex && odd){
+
+      if(forceEnd){
+        glob.smooth('catmull-rom')
+      }else{
+        glob.smooth({type:'catmull-rom',from:topStart,to:topEnd})
+        glob.smooth({type:'catmull-rom',from:bottomStart,to:bottomEnd})
+      }
+        
+        // var segs=glob.removeSegments(middleIndex,end) //TODO when paperjs supports path.smooth({from:middleIndex,to:end}) use that instead
+        // if(segs.length){
+        //   //console.info('new selection')
+        //   var p=new Path(segs)
+        //   //console.info('p',p.segments.length,p)
+        //   //if(this.lastBottomLineSegments){
+        //   //  p.insertSegments(0,this.lastBottomLineSegments)
+        //   //}
+        //   //this.lastBottomLineSegments=segs;
+        //   //console.info('p',p.segments.length,p)
+
+        //   //p.applyMatrix=false
+        //   p.smooth('catmull-rom')
           
-          //segs=p.removeSegments( p.segments.length-(end-start) )
-          //console.info('p',p.segments.length,p)
-          //DEV NOTE if you try the append previous line before smoothing appoach here make sure to use segs instead of p.segments
-          glob.insertSegments(start,p.segments); //insert at start again
-          p.remove()
-          //.smooth({from:start,to:end})
-          console.info('end selection')
-        }
-        //view.draw()
+        //   //segs=p.removeSegments( p.segments.length-(end-start) )
+        //   //console.info('p',p.segments.length,p)
+        //   //DEV NOTE if you try the append previous line before smoothing appoach here make sure to use segs instead of p.segments
+        //   glob.insertSegments(start,p.segments); //insert at start again
+        //   p.remove()
+        //   //.smooth({from:start,to:end})
+        //   console.info('end selection')
+        // }
+
       //}
 
+      glob.removeSegment(glob.segments.length-1)
+      glob.removeSegment(0)
 
-      
-      path=new Path([path.firstSegment,path.lastSegment])
+      // path=new Path([glob.removeSegment(0)])
+      // path.insert(1,glob.firstSegment)
+
+      // path.add(glob.segments[glob.segments.length-2])
+      // path.add(glob.removeSegment(glob.segments.length-1))
+
+      path=new Path()
+      path.closed=true
+      //path.addSegments([glob.firstSegment,glob.segments[1],glob.segments[glob.segments.length-2],glob.lastSegment])
+      path.add(glob.firstSegment)
+      //path.add(glob.segments[1].point)
+      path.add(midPoint(glob.segments[1].point,glob.segments[glob.segments.length-2].point))
+      //path.add(glob.segments[glob.segments.length-2].point)
+      path.add(glob.lastSegment)
+      //path=new Path([glob.firstSegment,glob.lastSegment])
       var name = glob.name.split(':')
       name[name.length-1]=(++this.iGlob)
 
       path.name=name.join(':');
 
       path.fillColor=active_color
-      path.closed=true
 
 
       testGlobs.push(glob.pathData)
@@ -1405,6 +2436,10 @@ new Path.Circle({
           this.masterGlob=addition
         }
       }
+      this.masterGlob.reduce()
+      if(forceEnd){
+        this.masterGlob.smooth()
+      }
       glob.strokeColor=debugStrokeColor
       glob.fillColor=debugFillColor
       
@@ -1422,7 +2457,7 @@ new Path.Circle({
       // artifacts we create in paperjs. It is also helpful for debuging. doublespeak name.
       this.defaultLayer=project.activeLayer
       this.debugLayer=new Layer()
-      this.debugLayer.name='debug:paintGlobs'
+      this.debugLayer.name='debug:globs'
       this.debugLayer.visible=debug
       this.defaultLayer.activate()
 
@@ -1464,7 +2499,7 @@ new Path.Circle({
           artist:uid,
           name: path.name,
           tool: brush.name,
-          options:pathToObject(path),
+          object:path.toJSON(),
           structure:[],
           globs:[],
           bounds:[path.bounds.topLeft.x,path.bounds.topLeft.y,path.bounds.topLeft.x,path.bounds.topLeft.y],
@@ -1476,8 +2511,8 @@ new Path.Circle({
 
     var step = event.delta / 2;
     step.angle += 90;
-    var top = event.middlePoint + step;
-    var bottom = event.middlePoint - step;
+    var bottom = event.middlePoint + step;
+    var top = event.middlePoint - step;
 
 
 
@@ -1499,6 +2534,7 @@ new Path.Circle({
   },onMouseUp:function(event){
        // Close the users path
     path.add(event.point);
+    //path.insert(0,event.point)
     //path.smooth()
 
     //path.remove()
@@ -1511,6 +2547,8 @@ new Path.Circle({
     //         fillColor: 'red'
     //     });
     // }
+    //this.masterGlob.smooth('continuous')
+    //this.masterGlob.simplify()
 
     // Send the path to other users
     path_to_send.end = view.viewToProject(path.lastSegment.point);
@@ -1529,14 +2567,14 @@ new Path.Circle({
     !debug && this.debugLayer.remove()
     path.remove()
 
-  },progressExternalPath:function(points,path){
+  },compile:function(path,data){
     if(!path){
       return
     }
-      if(points.pathData){
-        path=new Path(points.pathData)
+      if(data.pathData){
+        path=new Path(data.pathData)
       }else{
-        _.forEach(points.globs,function(glob){
+        _.forEach(data.globs,function(glob){
           glob = new Path(glob)
           path.remove()
           path=path.union(glob)
@@ -1544,11 +2582,12 @@ new Path.Circle({
       }
     return path
     }
-  }
-  ,pencil:new Pencil({smoothing:true,closed:false,outline:false})
-  ,select:new Select()
-  ,lineEditor:new LineEditor()
-  ,circle:{
+  })
+addBrush(new Pencil({smoothing:true,closed:false,outline:false}))
+addBrush(new Select())
+addBrush(new LineEditor())
+
+addBrush({
     name:'circle'
     ,onMouseUp:function(event){ 
       // Create a circle shaped path at the center of the view, (view.center = center point of view)
@@ -1560,104 +2599,134 @@ new Path.Circle({
       circle.strokeColor = 'black';
       circle.fillColor = 'white';
     }
-  }
-}
+  })
 
 
 var brush=brushes.draw
 var picker = $('#mycolorpicker');
+
 function onMouseDown(event) {
   if (event.which === 2) return; // If it's middle mouse button do nothing -- This will be reserved for panning in the future.
   $('.popup').fadeOut();
+  if($(event.event.target).is(canvas)){
+    picker.hide()
+  }
 
   //modify the tool event to represent the button we wish to identify as
   event.button=preferences.mouseButtonMap[event.event.button]
   
-  // // Hide color picker if it is visible already
-  // var picker = $('#mycolorpicker');
-  // if (picker.is(':visible')) {
-  //   picker.toggle(); // show the color picker
+  //DISABLED for now
+  // if(!mouseClickHeld){
+  //   mouseClickHeld = setTimeout(function() { // is the mouse being held and not dragged?
+  //       clearTimeout(mouseClickHeld);
+  //       mouseClickHeld=null
+  //       if(brush && brush.onMouseLongClick){
+  //         brush.onMouseLongClick(event)
+  //       } else{ //default function for on mouse long click
+  //           switch(event.button){
+  //             case 'primary':
+  //               picker.show(); // show the color picker
+  //               //if (picker.is(':visible')) {
+  //               // Mad hackery to get round issues with event.point
+  //               var targetPos = $(event.event.target).position();
+  //               var point = event.point + new Point(targetPos.left, targetPos.top);
+  //               positionPickerInCanvas(point);
+  //             //}
+  //             break;
+  //             case 'secondary':
+  //             break;
+  //             case 'middle':
+  //             break
+  //             default:
+  //             break
+  //           }
+  //       }
+  //   }, preferences.longClick);
   // }
 
-  mouseTimer = 0;
-  mouseClickHeld = setInterval(function() { // is the mouse being held and not dragged?
-    mouseTimer++;
-    if (mouseTimer > preferences.longClick) {
-      mouseTimer = 0;
-      clearInterval(mouseClickHeld);
-      if(brush && brush.onMouseLongClick){
-        brush.onMouseLongClick(event)
-      } else{ //default function for on mouse long click
+  _.defer(function(event){
 
-          picker.show(); // show the color picker
-          if (picker.is(':visible')) {
-            // Mad hackery to get round issues with event.point
-            var targetPos = $(event.event.target).position();
-            var point = event.point + new Point(targetPos.left, targetPos.top);
-            positionPickerInCanvas(point);
-          }
-      }
-    }else{ //it wasn't a long click so hide the picker and do whatever 
-       picker.hide()
-       if(brush && brush.onMouseLongClick){
-        brush.onMouseLongClick(false) //THIS SENDS FALSE instead of an event object so it can be used to clean up long click things
+    if(brush){
+      if(brush.onMouseDown){
+        (brush.onMouseDown[event.button]||brush.onMouseDown).call(brush,event)
       }
     }
-  }, 100);
 
-
-      // Send paths every 100ms
-    if (!timer_is_active) {
-      send_paths_timer = setInterval(function() { //TODO dont use setinterval cause it is bad. use settimeout cause it is good. duh
-        var jsonString = brush.poll(path_to_send)
-        if(typeof jsonString!= 'string'){
-          jsonString=JSON.stringify(jsonString)
-        }
-        socket.emit('draw:progress', room, uid, jsonString);
-      }, 100);
-    }
-
-    timer_is_active = true;
-  
-  if(brush){
-    if(brush.onMouseDown){
-      (brush.onMouseDown[event.button]||brush.onMouseDown).call(brush,event)
-    }
-  }
+    var tmp =new paper.MouseEvent(event.type,event.event,event.point,event.target,event.delta)
+    tmp.middlePoint=event.middlePoint
+    event=tmp
+      // // Send paths every 100ms
+      // if (!send_paths_timer) {
+      //   send_paths_timer = setInterval(function() { //TODO dont use setinterval cause it is bad. use settimeout cause it is good. duh
+      //     var jsonString
+      //     if(brush.poll){
+      //       jsonString=brush.poll(path_to_send)
+      //     }else{
+      //       jsonString=JSON.stringify(path_to_send)
+      //     }
+      //     if(typeof jsonString!= 'string'){
+      //       jsonString=JSON.stringify(jsonString)
+      //     }
+      //     socket.emit('draw:progress', room, uid, jsonString);
+      //   }, 100);
+      // }
+    
+  },event)
 }
 
 
 function onMouseDrag(event) {
-
-  mouseTimer = 0;
-  clearInterval(mouseClickHeld);
-
   //modify the tool event to represent the button we wish to identify as
   event.button=preferences.mouseButtonMap[event.event.button]
 
 
-  if(brush){
-    if(brush.onMouseDrag){
-      (brush.onMouseDrag[event.button]||brush.onMouseDrag).call(brush,event)
-    }
+  picker.hide()
+   if(brush && brush.onMouseLongClick){
+    brush.onMouseLongClick(false) //THIS SENDS FALSE instead of an event object so it can be used to clean up long click things
   }
+
+  clearTimeout(mouseClickHeld);
+  mouseClickHeld=null
+
+var tmp =new paper.MouseEvent(event.type,event.event,event.point,event.target,event.delta)
+    tmp.middlePoint=event.middlePoint
+    event=tmp
+  _.defer(function(event){
+    if(brush){
+      if(brush.onMouseDrag){
+        (brush.onMouseDrag[event.button]||brush.onMouseDrag).call(brush,event)
+      }
+    }
+  },event)
 }
 function onMouseUp(event){
   //modify the tool event to represent the button we wish to identify as
   event.button=preferences.mouseButtonMap[event.event.button]
-  clearInterval(mouseClickHeld);
 
-  if(brush){
-    if(brush.onMouseUp){
-      (brush.onMouseUp[event.button]||brush.onMouseUp).call(brush,event)
+  clearTimeout(mouseClickHeld);
+  mouseClickHeld=null
+
+
+var tmp =new paper.MouseEvent(event.type,event.event,event.point,event.target,event.delta)
+    tmp.middlePoint=event.middlePoint
+    event=tmp
+  _.defer(function(event){
+ 
+    if(brush){
+      if(brush.onMouseUp){
+        (brush.onMouseUp[event.button]||brush.onMouseUp).call(brush,event)
+      }
     }
-  }
-      clearInterval(send_paths_timer);
-      timer_is_active=false
+
+    clearInterval(send_paths_timer);
+    send_paths_timer=null
+    
+  },event)
 }
-var lastMousePosition;
+window.lastMousePosition;
 function onMouseMove(event){
-  lastMousePosition=event
+  console.log('onMouseMove')
+  window.lastMousePosition=event
 }
 /*ktsuttle code end*/
 
@@ -1668,12 +2737,69 @@ var key_move_delta;
 var send_key_move_timer;
 var key_move_timer_is_active = false;
 var shiftMultiplier=10
-
+var keyDown={}
 
 function onKeyDown(event) {
-    if(event.key == 'c'){
-      graffinityPointer.show()
-      return
+      event.preventDefault()
+    console.info(event.key,event)
+    keyDown[event.event.code]=keyDown[event.key]=true
+
+
+
+    var panStep=10
+    var handled=true; //defaults to true but is flipped to false if first switch does not handle
+    switch(event.event.code){
+      case 'Numpad1':
+        viewZoom.pan(-panStep,panStep)
+        break
+      case 'Numpad2':
+        viewZoom.pan(0,panStep)
+        break
+      case 'Numpad3':
+        viewZoom.pan(panStep,panStep)
+        break
+      case 'Numpad4':
+        viewZoom.pan(-panStep,0)
+        break
+      case 'Numpad5':
+        radialMenu.toggle()
+        break
+      case 'Numpad6':
+        viewZoom.pan(panStep,0)
+        break
+      case 'Numpad7':
+        viewZoom.pan(-panStep,-panStep)
+        break
+      case 'Numpad8':
+        viewZoom.pan(0,-panStep)
+        break
+      case 'Numpad9':
+        viewZoom.pan(panStep,-panStep)
+        break
+      default:
+        handled=false
+    }
+    if(!handled){
+      switch(event.key){
+        case 'page-down':
+          viewZoom.pan(0,project.view.bounds.height/2)
+          break
+        case 'page-up':
+          viewZoom.pan(0,-project.view.bounds.height/2)
+          break
+        case 'home':
+          viewZoom.panTo(0,0)
+          break
+        case 'c':
+          graffinityPointer.show()
+          break
+        case '+':
+          viewZoom.changeZoomCentered(3, project.view.center);
+          break
+        case '-':
+          viewZoom.changeZoomCentered(-3, project.view.center);
+          break
+      } 
     }
 
     if(graffinityPointer.active){
@@ -1687,6 +2813,7 @@ function onKeyDown(event) {
 
       var position = graffinityPointer.getPosition().clone()
       console.log('moving from position',position)
+
       switch(event.key){
         case 'a':
           position.x -= step;
@@ -1705,12 +2832,12 @@ function onKeyDown(event) {
           updated=true
           break;
       }
+      
       if(updated){
         graffinityPointer.pointTo(position)
         //path.add(position);
       } 
     }
-
 
   if (brush.name == "select") {
     var point = null;
@@ -1766,7 +2893,10 @@ function onKeyDown(event) {
 
 
 function onKeyUp(event) {
-  if (event.key == "delete") {
+  keyDown[event.event.code]=keyDown[event.key]=false
+
+  if (event.key == "delete" || event.key=="backspace") {
+
     // Delete selected items
     var items = paper.project.selectedItems;
     if (items) {
@@ -1822,11 +2952,11 @@ function moveItemsBy1Pixel(point) {
 }
 
 // Drop image onto canvas to upload it
-$('#myCanvas').bind('dragover dragenter', function(e) {
+canvas.bind('dragover dragenter', function(e) {
   e.preventDefault();
 });
 
-$('#myCanvas').bind('drop', function(e) {
+canvas.bind('drop', function(e) {
   e = e || window.event; // get window.event if e argument missing (in IE)
   if (e.preventDefault) { // stops the browser from redirecting off to the image.
     e.preventDefault();
@@ -1890,8 +3020,10 @@ $('#circleTool').on('click', function() {
   $('#pencilTool > a').css({
     background: "#eee"
   }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
   brush=brushes.circle
-  $('#myCanvas').css('cursor', 'pointer');
+  brush.init && brush.init()
+  canvas.css('cursor', 'pointer');
   paper.project.activeLayer.selected = false;
 });
 
@@ -1902,8 +3034,10 @@ $('#pencilTool').on('click', function() {
   $('#pencilTool > a').css({
     background: "#eee"
   }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
   brush=brushes.pencil
-  $('#myCanvas').css('cursor', 'pointer');
+  brush.init && brush.init()
+  canvas.css('cursor', 'pointer');
   paper.project.activeLayer.selected = false;
 });
 $('#drawTool').on('click', function() {
@@ -1913,10 +3047,13 @@ $('#drawTool').on('click', function() {
   $('#drawTool > a').css({
     background: "#eee"
   }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
   brush=brushes.draw
-  $('#myCanvas').css('cursor', 'pointer');
+  brush.init && brush.init()
+  canvas.css('cursor', 'pointer');
   paper.project.activeLayer.selected = false;
 });
+
 $('#paintTool').on('click', function() {
   $('#editbar > ul > li > a').css({
     background: ""
@@ -1924,8 +3061,25 @@ $('#paintTool').on('click', function() {
   $('#drawTool > a').css({
     background: "#eee"
   }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
   brush=brushes.paint
-  $('#myCanvas').css('cursor', 'pointer');
+  brush.init && brush.init()
+  canvas.css('cursor', 'pointer');
+  paper.project.activeLayer.selected = false;
+});
+
+
+$('#globTool').on('click', function() {
+  $('#editbar > ul > li > a').css({
+    background: ""
+  }); // remove the backgrounds from other buttons
+  $('#drawTool > a').css({
+    background: "#eee"
+  }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
+  brush=brushes.glob
+  brush.init && brush.init()
+  canvas.css('cursor', 'pointer');
   paper.project.activeLayer.selected = false;
 });
 $('#selectTool').on('click', function() {
@@ -1935,8 +3089,10 @@ $('#selectTool').on('click', function() {
   $('#selectTool > a').css({
     background: "#eee"
   }); // set the selecttool css to show it as active
+  brush.deinit && brush.deinit()
   brush=brushes.select
-  $('#myCanvas').css('cursor', 'default');
+  brush.init && brush.init()
+  canvas.css('cursor', 'default');
 });
 
 $('#uploadImage').on('click', function() {
@@ -2004,7 +3160,7 @@ function encodeAsImgAndLink(svg) {
 // local filesystem. This skips making a round trip to the server
 // for a POST.
 function exportPNG() {
-  var canvas = document.getElementById('myCanvas');
+  var canvas = canvas[0];
   var html = "<img src='" + canvas.toDataURL('image/png') + "' />"
   if ($.browser.msie) {
     window.winpng = window.open('/static/html/export.html');
@@ -2071,11 +3227,14 @@ socket.on('draw:end', function(artist, data) {
   }
 
 });
-var radialMenu,graffinityPointer,viewZoom,hud,drawLayer;
+var radialMenu,graffinityPointer,viewZoom,hud,drawLayer,splineLayer;
+
 socket.on('user:connect', function(user_count) {
   console.log("user:connect");
   drawLayer=paper.project.activeLayer;
-  
+  splineLayer=new Layer()
+  splineLayer.name='spline'
+
   hud=new Layer()
   hud.name='hud'
 
@@ -2085,8 +3244,13 @@ socket.on('user:connect', function(user_count) {
   drawLayer.activate()
   console.log('@drawLayer@',drawLayer)
 
-  viewZoom=new ViewZoom(project,[hud])
+  window.viewZoom=viewZoom=new ViewZoom(project)
   viewZoom.setZoomRange([.001,Number.MAX_VALUE-1])
+
+  if(coords){
+    viewZoom.panTo(coords[0],coords[1])
+    coords[2] && viewZoom.setZoomConstrained(coords[2])
+  }
 
   update_user_count(user_count);
 });
@@ -2204,43 +3368,49 @@ var end_external_path = function(points, artist) {
 
 };
 
+var switchLayer=function(layer){
+  var active=project.activeLayer
+  layer.activate()
+  return activeLayer
+}
+
+
 // Continues to draw a path in real time
 progress_external_path = function(points, artist) {
+  console.log('progress_external_path',points,artist)
 
   var path = external_paths[artist];
-  var fn=brushes[points.tool].progressExternalPath
+  var fn=brushes[points.tool].compile
   if(fn){
-    path=fn(points,path)
+    path=fn(path,points)
   }else{ //TODO move this to pencil and draw functions
 
     // The path hasnt already been started
     // So start it
-    if (!path) {
+    if (!path){
+      // var renderType=points.preferences
+      // brush.render[points.perferedRender](data)
+      // if(path.svg){
 
+      // }
+      // if(path.paperjs){
+
+      // }
+      // if(path.raster){
+
+      // }
+      // if(path.raw){
+
+      // }
       // Creates the path in an easy to access way
-      external_paths[artist] = new Path();
-      path = external_paths[artist];
-
-      // Starts the path
-      var start_point = new Point(points.start[1], points.start[2]);
-      var color = new Color(points.rgba[0], points.rgba[1], points.rgba[2], points.rgba[3]);
-      if (points.tool == "draw") {
-        path.fillColor = color;
-      } else if (points.tool == "pencil") {
-        path.strokeColor = color;
-        path.strokeWidth = 2;
-      }
-
-      path.name = points.name;
-      path.add(start_point);
-
+      path=external_paths[artist] = project.importJSON(points.init);
+      path.parent=drawLayer||project.activeLayer;
     }
 
     // Draw all the points along the length of the path
     var paths = points.path;
     var length = paths.length;
     for (var i = 0; i < length; i++) {
-
       path.add(new Point(paths[i].top[1], paths[i].top[2]));
       path.insert(0, new Point(paths[i].bottom[1], paths[i].bottom[2]));
 
@@ -2280,3 +3450,332 @@ function onFrame(event) {
 //   // Save image to localStorage
 //   localStorage.setItem("drawingPNG"+room, canvas.toDataURL('image/png'));
 // }
+
+
+
+
+
+//single spring
+web.tendon=function(elem,target,options){
+  /*options=
+      tention
+      friction
+      attaction
+      snapDistance
+  */
+  options=options||{}
+  if(!(this instanceof web.tendon)){return new web.tendon(elem,target,options)}
+  
+  if(options=='unhook'){
+    
+  }
+  if(!web.isNode(elem)){
+    if(window.paper){
+      if(elem instanceof paper.Item || elem instanceof paper.Point||elem instanceof paper.Segment){
+        return web.tendon.paperElement.call(this,elem,target,options)
+      }
+    }
+    throw 'error idk the type of target web.tendon should use'
+  }
+  return web.tendon.domElement.call(this,elem,target,options)
+}
+web.tendon.paperElement=function(item,target,options){
+  var type=options.type||item.className
+
+  var applyMatrixDefault=item.applyMatrix
+  item.applyMatrix=false
+  
+  var dragging=false
+  // create a SpringSystem and a Spring with a bouncy config.
+  var springSystem = new rebound.SpringSystem();
+  var spring = springSystem.createSpring(50, 3);
+
+  // Add a listener to the spring. Every time the physics
+  // solver updates the Spring's value onSpringUpdate will
+  // be called.
+  spring.addListener({
+    onSpringUpdate: function(spring) {
+      view.draw()
+      var val = spring.getCurrentValue();
+      val = rebound.MathUtil
+                   .mapValueInRange(val, 0, 1, 1, 0.5);
+      scale(item, val);
+    }
+  });
+  var mouseDown=false
+  // Listen for mouse down/up/out and toggle the
+  //springs endValue from 0 to 1.
+  // item.attach('mouseenter',function(){
+  //   spring.setEndValue(.1)
+  // })
+  item.attach('mousedown', function() {
+    console.log('moooouseee')
+    if(mouseDown){
+      return 
+    }
+    mouseDown=true
+    spring.setEndValue(.5);
+  });
+
+  item.attach('mouseleave', function() {
+    mouseDown=false
+    spring.setEndValue(0);
+  });
+
+  item.attach('mouseup', function() {
+    mouseDown=false
+    spring.setEndValue(0);
+  });
+
+
+  //var previousClone;
+  // Helper for scaling an element with css transforms.
+  function scale(item, val) {
+    // if(previousClone){
+    //   previousClone.remove()
+    // }
+    // previousClone=item.clone()
+    // previousClone.scale(val)
+    item.matrix.reset()
+    item.scale(val)
+    view.draw()
+    // item.style.mozTransform =
+    // item.style.msTransform =
+    // item.style.webkitTransform =
+    // item.style.transform = 'scale3d(' +
+    //   val + ', ' + val + ', 1)';
+  }
+
+
+
+}
+web.tendon.domElement=function(elem,target,options){
+  var whole = $('.web-tendon',elem)
+  if(!whole.length){
+    whole=$(elem)
+  }
+
+  var handle=whole.find('.handle')
+  var $elem = whole.find('.item')
+
+  if(!$elem.length){
+    $elem=handle
+  }
+  elem=$elem[0]
+
+
+  var offset=$elem.offset;
+  var icon=elem.children[0];
+  var $icon=$(icon);
+
+
+  var spring = springSystem.createSpring(50, 3);
+  var springMouseFollow=springSystem.createSpring();
+  var dragging=false;
+
+  var returnToPlaceHolder;
+  var win={width:$(window).width(),height:$(window).height()}
+  var prevValX, prevValY,destX,destY;
+  springMouseFollow.addListener({
+    onSpringUpdate:function(spring){
+      var val= spring.getCurrentValue();
+
+      var center = true//spring.getEndValue();
+
+      
+      if(dragging){
+        destX=web.tendon.pointer.x
+        destY=web.tendon.pointer.y
+        
+        if(center){
+          destX= destX- $elem.width() / 2;
+          destY= destY- $elem.height() / 2;
+        }
+      }
+      var valX=rebound.MathUtil.mapValueInRange(val,0,1,offset.left,destX)
+      var valY=rebound.MathUtil.mapValueInRange(val,0,1,offset.top,destY)
+      // console.log('tendon.pointer follow',val,valX);
+      valX=Math.round(valX)
+      valY=Math.round(valY)
+      //if(valX==prevValX&&valY==prevValY&&!dragging){
+      //  console.warn('premature stop')
+      //  spring.setAtRest() 
+      //  return
+      //}
+      //prevValX=valX
+      //prevValY=valY
+      $elem.css({'left':valX,'top':valY});
+    },onSpringAtRest :function(spring){
+      if(!dragging && returnToPlaceHolder){
+        console.log('returning to placeholder')
+        returnToPlaceHolder=false;
+        $elem.css('position','static')
+      }
+    }
+  })
+
+
+  // Add a listener to the spring. Every time the physics
+  // solver updates the Spring's value onSpringUpdate will
+  // be called.
+  spring.addListener({
+    onSpringUpdate: function(spring) {
+      console.log('bouncing')
+      var val = spring.getCurrentValue();
+      val = rebound.MathUtil.mapValueInRange(val, 0, 1, 1, 0);//from from, to to
+      //console.log('click',val)
+      scale(icon, val);
+    }
+  });
+  
+  var pullDistanceBeforeRelease=0
+
+  var initialGrabLocation;
+  // Listen for mouse down/up/out and toggle the
+  //springs endValue from 0 to 1.
+  $elem.on('mousedown.web-tendon touchstart.web-tendon', function(e) {
+    root.toggleClass('no-select',true)
+    if(!pullDistanceBeforeRelease){
+      pullDistanceBeforeRelease=Math.sqrt(Math.pow($elem.width(),2)+Math.pow($elem.height(),2))/2 //radius of rectangle
+    }
+    initialGrabLocation=$elem.offset()
+    initialGrabLocation.top+=$elem.height() / 2
+    initialGrabLocation.left+=$elem.width() / 2
+    spring.setEndValue(.2);
+        //dragHandlers.length && dragHandlers.forEach(function(fn){fn()})
+  });
+  
+  var root=$('html')
+  var $window=$('window')
+  
+
+  var dragOn=function(){
+    dragging=true;
+    root.toggleClass('no-select',dragging)
+    if(elem.style.position!='fixed'){
+      var css=$elem.offset()
+      css.position='fixed'
+      css.width=$elem.innerWidth();
+      css.height=$elem.innerHeight();
+      $elem.css(css)
+      $(elem.children[0]).one('animationiteration webkitAnimationIteration', function() {
+        if(dragging){
+          $(this).removeClass("alert");
+        }
+        });
+
+      // web.onEvent('transitionEnd',elem.children[0],function(){
+      
+      //  web.cssClass(elem.children[0],'-unread')
+      // })
+    }
+  }
+
+  elem.addEventListener('mouseout.web-tendon', function() {
+    if(dragging){
+      return
+    }
+    spring.setEndValue(0);
+  });
+
+  elem.addEventListener('mouseover.web-tendon', function() {
+    spring.setEndValue(0.05);
+  });
+
+
+
+  $(document).on('mousemove.web-tendon touchmove.web-tendon',function(e){
+    if(!dragging){
+      var point = e.originalEvent.touches
+      point = point && point[0]
+      point = point || e
+      //console.info(initialGrabLocation,point,web.distance(initialGrabLocation,point))
+      if(web.distance(initialGrabLocation,point)>pullDistanceBeforeRelease){
+        //alert(initialGrabLocation+' '+ web.distance(initialGrabLocation,point))
+        initialGrabLocation=undefined
+        dragOn()
+        console.log('dragging on')
+      }
+      return
+    }
+    e.preventDefault();
+    console.log('setting new start')
+    var rec = elem.getBoundingClientRect() //get left right coords based on viewport
+    offset.left=rec.left
+    offset.top=rec.top
+
+    //offset = $elem.offset();
+    //offset.top=offset.top+$window.scrollTop()
+    //offset.left=offset.left+$window.scrollLeft()
+
+    springMouseFollow.setCurrentValue(0,true)
+    springMouseFollow.setEndValue(1)
+
+    // var distance = Math.saqrt(Math.pow(e.clientX-centerX,2)+Math.pow(e.clientY-centerY,2))
+    // springMouseFollow.setEndValue(1) //increase tention in distance
+  })
+  
+  $(document).on('mouseup.web-tendon touchend.web-tendon',function(){ //TODO change this to event delegation
+    initialGrabLocation=null
+    spring.setEndValue(0)
+    root.toggleClass('no-select',dragging)
+    if(!dragging){
+      return
+    }
+    dragging=false;
+    var targ = $(elem.children[0])//TODO cache this
+    if(targ.hasClass("unread")){ //TODO make this a callback per web.tendon
+      targ.addClass('alert')
+    }
+
+    console.log('dragging off')
+  
+
+  // $(document).off('.draggingUserIcon') 
+  })
+
+  $(window).bind('keypress.web-tendon', function(e) {
+    console.log(String.fromCharCode(e.which))
+    if(String.fromCharCode(e.which)=='a'){
+      //dragging=true
+      springMouseFollow.setCurrentValue(0,true)
+      springMouseFollow.setEndValue(1)
+    }else{
+      offset = $elem.parent().offset();
+      dragging=false
+      returnToPlaceHolder=true
+       springMouseFollow.setCurrentValue(1)
+        springMouseFollow.setEndValue(0)
+    }
+  });
+
+  // Helper for scaling an element with css transforms.
+  function scale(el, val) {
+    el.style.mozTransform =
+    el.style.msTransform =
+    el.style.webkitTransform =
+    el.style.transform = 'scale3d(' +
+      val + ', ' + val + ', 1)';
+  }
+  var dragHandlers=[]
+  this.onDragStart=function(fn){
+    dragHandlers.push(fn)
+  }
+
+
+  if(!web.tendon.pointer){ //this gets run ONCE when you call tendon the first time
+    web.tendon.pointer={x:0,y:0}
+    $(document).on('mousemove.web-tendon touchmove.web-tendon',function(e){
+        console.log('setting new destination')
+        if(e.type=='touchmove'){
+          var touch = e.originalEvent.touches[0]
+          web.tendon.pointer.x=touch.pageX
+          web.tendon.pointer.y=touch.pageY
+        }else if(e.type=='mousemove'){
+          web.tendon.pointer.x=e.clientX
+          web.tendon.pointer.y=e.clientY
+        }
+    })
+  }
+  return this
+}
