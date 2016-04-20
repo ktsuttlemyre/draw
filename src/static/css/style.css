@@ -475,7 +475,7 @@ input[type=checkbox] {
   cursor:move;
 }
 
-#myCanvas{
+canvas{
   position:absolute;
   cursor:hand;
   top:0px;

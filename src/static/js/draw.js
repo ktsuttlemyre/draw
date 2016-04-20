@@ -14,39 +14,336 @@ var preferences = {
 }
 
 
-var hudProject;
 
+var state = window.state={
+  room:null
+  ,x:0
+  ,y:0
+  ,zoom:1
+  ,mode:'draw'
+  ,timeFrame:'live'
+}
 
-var room,coords;
 page('/:room?/:coords?/:args?', function(context){
-  room = context.params.room;
-  if(!room){
-    room='~'
+  var room = state.room=context.params.room||'~'
+
+  var radixCoords = context.params.coords
+  if(radixCoords){
+    radixCoords=radixCoords.split(',')
+    radixCoords[0] && (state.x=web.radixToNumber(radixCoords[0],".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
+    radixCoords[1] && (state.y=web.radixToNumber(radixCoords[1],".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
+    radixCoords[2] && (state.zoom=parseFloat(radixCoords[2]))
   }
-  coords=context.params.coords
-  if(coords){
-    coords=coords.split(',').map(Number);
-  }
+
 });
 page()
 
 //see christoph answer http://stackoverflow.com/questions/661562/how-to-format-a-float-in-javascript
 var fixedPrecision = Math.pow(10, 3 || 0); //3 is decimal length
-var setCoordsInURL= function(roomName,X,Y,zoom){
-  //set everything if needed
-  roomName=roomName||room
-  X= view.center.x= Math.round(X||view.center.x||0)
-  Y= view.center.y= Math.round(Y||view.center.y||0)
-  zoom = view.zoom= Math.round((zoom||view.zoom)* fixedPrecision) / fixedPrecision //this sets precision without using a string
+var setCoordsInURL= function(room,X,Y,zoom){
 
-  if(zoom!=1){
-    page.redirect('/'+roomName+'/'+X+','+Y+','+zoom)
+  //set everything if needed
+  room=state.room = (room||state.room)
+  
+  X=(X==null)?view.center.x:X
+  Y=(Y==null)?view.center.y:Y
+  zoom = (zoom==null)?view.zoom:zoom
+
+  state.x= view.center.x= (Math.round(X||0))
+  state.y= view.center.y= (Math.round(Y||0))
+  state.zoom= zoom= view.zoom= (Math.round(zoom* fixedPrecision) / fixedPrecision) //this sets precision without using a string
+
+  X=web.numberToRadix(state.x,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+  Y=web.numberToRadix(state.y,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+  //zoom=web.numberToRadix(zoom,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") //TODO support this
+  if(state.x==0&&state.y==0&&(state.zoom==1||state.zoom==null)){
+    if(room=='~'){
+      page.redirect('/')
+    }else{
+      page.redirect('/'+room)
+    }
+  }else if(zoom!=1){
+    page.redirect('/'+room+'/'+X+','+Y+','+zoom)
   }else if(X||Y){
-    page.redirect('/'+roomName+'/'+X+','+Y)
+    page.redirect('/'+room+'/'+X+','+Y)
   }
   
 }
-var setCoordsInURLDebounced=_.debounce(setCoordsInURL,150)
+var setCoordsInURLDebounced=_.debounce(setCoordsInURL,50)
+
+
+
+
+
+
+
+var RadialMenu=function(layer,hud){
+  this.hud=hud
+  var defaultLayer=project.activeLayer
+  this.layer=layer
+  this.project=layer.project
+
+  //Start Switch Scopes
+  var defaultProject=paper.project
+  var defaultLayer=defaultProject.activeLayer
+  this.project.activate()
+  this.layer.activate()
+  //End Switch Scopes
+
+  this.point=view.center
+
+  this.group = new Group();
+  this.group.visible=false
+
+  var reference=0
+
+//Create Each segment
+// function createSegment(point,fillColor){
+//     //Segment One
+//     var start = new Point(point.x, point.y-130);
+//     var through = new Point(point.x-90, point.y-94);
+//     var to = new Point(point.x-113, point.y-64);
+//     var name = Path.Arc(start, through, to);
+
+//     name.add(new Point(point.x, point.y));
+//     name.closed=true//name.add(new Point(point.x, point.y-130));
+//     name.fillColor = fillColor;
+//     return name;
+// }
+
+    //var path = new Path()
+
+    var spread=15;
+    var center = new Path.Circle({
+        center: reference,
+        radius: 55,
+        fillColor: 'blue'
+    });
+    var menuArea = new Path.Circle({
+        center: reference,
+        radius:120,
+        fillColor: new Color(0,0,1,.5)
+    });
+
+
+    var itemNumber=3
+    var items=[]
+    for(var i=0;i<itemNumber;i++){
+      var item= new Path.Circle({
+        center: reference,
+        radius: 15,
+        fillColor: 'black' //new Color(0,.5,1)
+      });
+      items.push(item)
+    }
+
+
+  // var point1 = new Point(150, 150);
+  // var point2 = new Point(250, 150);
+  // path.add(point1);
+  // path.add(point2);
+
+  // var handle1 = new Path.Circle({
+  //   center    : center.position+new Point(50,0),
+  //   radius    : 7,
+  //   fillColor : 'green'
+  // });
+
+  // var handle2 = new Path.Circle({
+  //   center    : center.position-new Point(50, 0),
+  //   radius    : 7,
+  //   fillColor : 'blue'
+  // });
+
+
+
+// arcTwo.rotate(-60, view.center);
+// arcThree.rotate(-120, view.center);
+// arcFour.rotate(60, view.center);
+// arcFive.rotate(120, view.center);
+// arcSix.rotate(180, view.center);
+
+// var angle=0;angle<Math.PI*2;angle+=(Math.PI*2)/10){
+//     var dx = Math.cos(angle)*fuzzyRadius;
+//     var dy = Math.sin(angle)*fuzzyRadius;
+//     ctx.beginPath();
+//       ctx.arc(Mouse.x+dx, Mouse.y+dy, 2, 0, 2*Math.PI, false);
+//       ctx.fill();
+
+
+
+
+var archs = []
+for(var i = 0,k=1, l = items.length; i < l; i++,k+=2) {
+
+  //calculate left
+  var x= ((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4))*2
+  //calculate top
+  var y= ((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4) )*2
+  items[i].position=center.position+new Point(x,y)
+
+    var start = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4) )*6))
+    //Segment One
+    var through = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/(l*2))*(k)*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/(l*2))*(k)*Math.PI)).toFixed(4) )*6))
+    var to = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*(i+1)*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*(i+1)*Math.PI)).toFixed(4) )*6))
+
+    var name = Path.Arc(start, through, to);
+    name.add(new Point(center.position.x, center.position.y));
+    name.closed=true//name.add(new Point(point.x, point.y-130));
+    name.fillColor = 'black';
+    archs.push(name)
+
+}
+
+  
+
+  this.group.removeChildren()
+  this.group.addChildren(Array.prototype.concat(menuArea, archs, center, items))
+  this.group.pivot = this.group.position;
+  this.group.position=this.point
+
+
+
+    // When the mouse enters the item, set its fill color to red:
+    this.group.attach('mouseenter', function(event) {
+        event.target.fillColor = 'blue';
+    });
+
+    //path.onMouseEnter(shiftPath);
+    var timer;
+    // When the mouse leaves the item, set its fill color to black
+    // and remove the mover function:
+    var group=this.group
+    this.group.attach('mouseleave',_.bind(function(event) {
+        event.target.fillColor = 'black';
+        clearTimeout(timer)
+
+        setTimeout(_.bind(function(){
+          if(!group.contains(lastMousePosition.point)){
+            this.hide()// group.visible=false
+            view.draw() //this one is nessisary
+          }
+        },this),700)
+      //  path.detach('mouseenter', shiftPath);
+    },this));
+
+
+  // handle1.onMouseDrag = function(event) {
+  //   this.group.position = this.group.position.subtract(handle1.position).add(event.point);
+  //     this.group.pivot = event.point;
+  // };
+
+  // handle2.onMouseDrag = function(event) {
+  //    this.group.rotate(event.point.subtract(handle1.position).angle - (handle2.position.subtract(handle1.position)).angle);
+  // };
+
+
+
+
+
+// var arc = {
+//     fill: '#333',
+//     stroke: '#333',
+//     path: 'M53.286,44.333L69.081,7.904C48.084-1.199,23.615-2.294,0.648,6.78l14.59,36.928C28.008,38.662,41.612,39.27,53.286,44.333z'
+// };
+
+// var paper = Raphael(document.getElementById("notepad"), 500, 500);
+
+// var arcDegrees = 45;
+// var centerX = 210;
+// var centerY = 210;
+// var compassRadius = 68;
+// var currentlyActive = 45;
+// var directions = [
+//     {label:'N', degrees:0, rotatedDegrees:270}, 
+//     {label:'NE', degrees:45, rotatedDegrees:315}, 
+//     {label:'E', degrees:90, rotatedDegrees:0}, 
+//     {label:'SE', degrees:135, rotatedDegrees:45}, 
+//     {label:'S', degrees:180, rotatedDegrees:90}, 
+//     {label:'SW', degrees:225, rotatedDegrees:135}, 
+//     {label:'W', degrees:270, rotatedDegrees:180}, 
+//     {label:'NW', degrees:315, rotatedDegrees:225}
+// ];
+
+// function arcClicked()
+// {
+//     var label = $(this).data('direction-label');
+//     $("#activeArc").attr('id', null);
+//     $(this).attr('id', 'activeArc');
+// }
+
+// for (i = 0; i < 360; i += arcDegrees) {
+//     var direction = _.find(directions, function(d) { return d.rotatedDegrees == i; });
+//     var radians = i * (Math.PI / 180);
+//     var x = centerX + Math.cos(radians) * compassRadius;
+//     var y = centerY + Math.sin(radians) * compassRadius;
+        
+//     var newArc = paper.path(arc.path);
+//     // newArc.translate(x, y);
+//     // newArc.rotate(i + 89);
+//     newArc.transform('T' + x + ',' + y + 'r' + (i + 89));
+    
+//     if (direction.degrees == currentlyActive) {
+//         $(newArc.node).attr('id', 'activeArc');
+//     }
+        
+//     $(newArc.node)
+//         .attr('class', 'arc')
+//         .data('direction-label', direction.label)
+//         .on('click', arcClicked);
+// }
+  //Start Restore Scope
+  defaultProject.activate()
+  defaultLayer.activate()
+  //End Restore Scope
+
+}
+RadialMenu.prototype.constructor=RadialMenu
+RadialMenu.prototype.update=function(){alert()}
+RadialMenu.prototype.hide=function(){
+  if(!this.group.visible){
+    return
+  }
+  this.group.visible=false
+  this.hud && this.hud.hide()
+}
+RadialMenu.prototype.show=function(event){
+  if(!event){
+    this.point=this.project.view.center
+  }else{
+    this.point =((event.point)?event.point:event)
+  }
+  this.group.position=this.point;
+  this.group.visible=true
+}
+RadialMenu.prototype.toggle=function(){
+  if(this.group.visible){
+    this.hide()
+  }else{
+    this.show()
+  }
+}
+
+var HUD=function(element,layer){
+  this.hudCanvas=element
+  this.radialMenu=new RadialMenu(layer,this)
+}
+HUD.prototype.constructor=HUD
+HUD.prototype.show=function(){
+      this.radialMenu.show()
+      this.hudCanvas.fadeIn()
+    }
+HUD.prototype.hide=function(){
+      this.radialMenu.hide()
+      this.hudCanvas.fadeOut()
+    }
+HUD.prototype.toggle=function(point){
+      if(hudCanvas.is(':visible')){
+        hud.hide()
+      }else{
+        hud.show(point)
+      }
+    }
 
 
 
@@ -217,233 +514,6 @@ function midPoint(p1,p2){
   return p
 }
 
-var RadialMenu=function(collection){
- this.point=view.center
-
-    this.group = new Group();
-    this.group.visible=false
-
-  var reference=0
-
-//Create Each segment
-// function createSegment(point,fillColor){
-//     //Segment One
-//     var start = new Point(point.x, point.y-130);
-//     var through = new Point(point.x-90, point.y-94);
-//     var to = new Point(point.x-113, point.y-64);
-//     var name = Path.Arc(start, through, to);
-
-//     name.add(new Point(point.x, point.y));
-//     name.closed=true//name.add(new Point(point.x, point.y-130));
-//     name.fillColor = fillColor;
-//     return name;
-// }
-
-    //var path = new Path()
-
-    var spread=15;
-    var center = new Path.Circle({
-        center: reference,
-        radius: 55,
-        fillColor: 'blue'
-    });
-    var menuArea = new Path.Circle({
-        center: reference,
-        radius:120,
-        fillColor: new Color(0,0,1,.5)
-    });
-
-
-    var itemNumber=3
-    var items=[]
-    for(var i=0;i<itemNumber;i++){
-      var item= new Path.Circle({
-        center: reference,
-        radius: 15,
-        fillColor: 'black' //new Color(0,.5,1)
-      });
-      items.push(item)
-    }
-
-
-  // var point1 = new Point(150, 150);
-  // var point2 = new Point(250, 150);
-  // path.add(point1);
-  // path.add(point2);
-
-  // var handle1 = new Path.Circle({
-  //   center    : center.position+new Point(50,0),
-  //   radius    : 7,
-  //   fillColor : 'green'
-  // });
-
-  // var handle2 = new Path.Circle({
-  //   center    : center.position-new Point(50, 0),
-  //   radius    : 7,
-  //   fillColor : 'blue'
-  // });
-
-
-
-// arcTwo.rotate(-60, view.center);
-// arcThree.rotate(-120, view.center);
-// arcFour.rotate(60, view.center);
-// arcFive.rotate(120, view.center);
-// arcSix.rotate(180, view.center);
-
-// var angle=0;angle<Math.PI*2;angle+=(Math.PI*2)/10){
-//     var dx = Math.cos(angle)*fuzzyRadius;
-//     var dy = Math.sin(angle)*fuzzyRadius;
-//     ctx.beginPath();
-//       ctx.arc(Mouse.x+dx, Mouse.y+dy, 2, 0, 2*Math.PI, false);
-//       ctx.fill();
-
-
-
-
-var archs = []
-for(var i = 0,k=1, l = items.length; i < l; i++,k+=2) {
-
-  //calculate left
-  var x= ((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4))*2
-  //calculate top
-  var y= ((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4) )*2
-  items[i].position=center.position+new Point(x,y)
-
-    var start = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*i*Math.PI)).toFixed(4) )*6))
-    //Segment One
-    var through = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/(l*2))*(k)*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/(l*2))*(k)*Math.PI)).toFixed(4) )*6))
-    var to = center.position.add(new Point(((spread*Math.cos(-0.5 * Math.PI - 2*(1/l)*(i+1)*Math.PI)).toFixed(4))*6,((spread*Math.sin(-0.5 * Math.PI - 2*(1/l)*(i+1)*Math.PI)).toFixed(4) )*6))
-
-    var name = Path.Arc(start, through, to);
-    name.add(new Point(center.position.x, center.position.y));
-    name.closed=true//name.add(new Point(point.x, point.y-130));
-    name.fillColor = 'black';
-    archs.push(name)
-
-}
-
-  
-
-  this.group.removeChildren()
-  this.group.addChildren(Array.prototype.concat(menuArea, archs, center, items))
-  this.group.pivot = this.group.position;
-  this.group.position=this.point
-
-
-
-    // When the mouse enters the item, set its fill color to red:
-    this.group.attach('mouseenter', function(event) {
-        event.target.fillColor = 'blue';
-    });
-
-    //path.onMouseEnter(shiftPath);
-    var timer;
-    // When the mouse leaves the item, set its fill color to black
-    // and remove the mover function:
-    var group=this.group
-    this.group.attach('mouseleave',function(event) {
-        event.target.fillColor = 'black';
-        clearTimeout(timer)
-
-        setTimeout(function(){
-          if(!group.contains(lastMousePosition.point)){
-            group.visible=false
-            view.draw() //this one is nessisary
-          }
-        },700)
-      //  path.detach('mouseenter', shiftPath);
-    });
-
-
-  // handle1.onMouseDrag = function(event) {
-  //   this.group.position = this.group.position.subtract(handle1.position).add(event.point);
-  //     this.group.pivot = event.point;
-  // };
-
-  // handle2.onMouseDrag = function(event) {
-  //    this.group.rotate(event.point.subtract(handle1.position).angle - (handle2.position.subtract(handle1.position)).angle);
-  // };
-
-
-
-
-
-// var arc = {
-//     fill: '#333',
-//     stroke: '#333',
-//     path: 'M53.286,44.333L69.081,7.904C48.084-1.199,23.615-2.294,0.648,6.78l14.59,36.928C28.008,38.662,41.612,39.27,53.286,44.333z'
-// };
-
-// var paper = Raphael(document.getElementById("notepad"), 500, 500);
-
-// var arcDegrees = 45;
-// var centerX = 210;
-// var centerY = 210;
-// var compassRadius = 68;
-// var currentlyActive = 45;
-// var directions = [
-//     {label:'N', degrees:0, rotatedDegrees:270}, 
-//     {label:'NE', degrees:45, rotatedDegrees:315}, 
-//     {label:'E', degrees:90, rotatedDegrees:0}, 
-//     {label:'SE', degrees:135, rotatedDegrees:45}, 
-//     {label:'S', degrees:180, rotatedDegrees:90}, 
-//     {label:'SW', degrees:225, rotatedDegrees:135}, 
-//     {label:'W', degrees:270, rotatedDegrees:180}, 
-//     {label:'NW', degrees:315, rotatedDegrees:225}
-// ];
-
-// function arcClicked()
-// {
-//     var label = $(this).data('direction-label');
-//     $("#activeArc").attr('id', null);
-//     $(this).attr('id', 'activeArc');
-// }
-
-// for (i = 0; i < 360; i += arcDegrees) {
-//     var direction = _.find(directions, function(d) { return d.rotatedDegrees == i; });
-//     var radians = i * (Math.PI / 180);
-//     var x = centerX + Math.cos(radians) * compassRadius;
-//     var y = centerY + Math.sin(radians) * compassRadius;
-        
-//     var newArc = paper.path(arc.path);
-//     // newArc.translate(x, y);
-//     // newArc.rotate(i + 89);
-//     newArc.transform('T' + x + ',' + y + 'r' + (i + 89));
-    
-//     if (direction.degrees == currentlyActive) {
-//         $(newArc.node).attr('id', 'activeArc');
-//     }
-        
-//     $(newArc.node)
-//         .attr('class', 'arc')
-//         .data('direction-label', direction.label)
-//         .on('click', arcClicked);
-// }
-}
-RadialMenu.prototype.constructor=RadialMenu
-RadialMenu.prototype.update=function(){alert()}
-RadialMenu.prototype.hide=function(){
-  this.group.visible=false
-}
-RadialMenu.prototype.show=function(event){
-  if(!event){
-    this.point=project.view.center
-  }else{
-    this.point =((event.point)?event.point:event)
-  }
-  this.group.position=this.point;
-  this.group.visible=true
-}
-RadialMenu.prototype.toggle=function(){
-  if(this.group.visible){
-    this.hide()
-  }else{
-    this.show()
-  }
-}
-
-
 
 function pickColor(color) {
   $('#color').val(color);
@@ -564,7 +634,7 @@ function hexToRgb(hex) {
 //     })(SimplePanAndZoom);
 // var  panAndZoom = new StableZoom();
 
-var ViewZoom = (function () { //https://gist.github.com/ryascl/4c1fd9e2d5d0030ba429
+var ViewZoom= (function () { //https://gist.github.com/ryascl/4c1fd9e2d5d0030ba429
     function ViewZoom(project,ignoreLayers) {
         this.factor = 1.06;
         this.joystickDrivePan=false
@@ -767,13 +837,13 @@ mc.on("panend pinchend", _.bind(function (event) {
         //TODO if x or y is greater than 1000000 force refresh
         if(!debug && point.x>1000000 || point.y>1000000 || point.x<-1000000 || point.y<-1000000){
           setCoordsInURLDebounced.cancel && setCoordsInURLDebounced.cancel()
-          setCoordsInURL(room,X,Y)
+          setCoordsInURL(state.room,X,Y)
 
           //TODO reinitialize everything properly
           location.reload()
           return 
         }
-        setCoordsInURLDebounced(room,X,Y)
+        setCoordsInURLDebounced(state.room,X,Y)
         view.center = point;
         return view.center
       };
@@ -875,7 +945,7 @@ mc.on("panend pinchend", _.bind(function (event) {
     return ViewZoom;
 }());
 
-var canvas,mainProject;
+var canvas,mainProject,hudCanvas,hudProject;
 $(document).ready(function() {
   var drawurl = window.location.href.split("?")[0]; // get the drawing url
   $('#embedinput').val("<iframe name='embed_readwrite' src='" + drawurl + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400></iframe>"); // write it to the embed input
@@ -885,9 +955,10 @@ $(document).ready(function() {
   }); // set the drawtool css to show it as active
 
 
+
+
   canvas=$('#myCanvas')
   mainProject=paper.project
-  mainProject.activate()
   // canvas.bind('mousewheel DOMMouseScroll', function(event) {
   //   // // var point = paper.DomEvent.getOffset(event, $('#canvas')[0]);
   //   // // //With this I can then convert to project space using view.viewToProject():
@@ -921,6 +992,16 @@ $(document).ready(function() {
 
   // // Temporarily set background as image from memory to improve UX
   // $('#canvasContainer').css("background-image", 'url(' + drawingPNG + ')');
+
+
+
+  hudCanvas=$('#hudCanvas')
+  paper.setup(hudCanvas[0])
+  hudProject=paper.project
+
+  hudCanvas.hide()
+  window.hud=new HUD(hudCanvas,hudProject.activeLayer)
+  mainProject.activate()
 
 }).on( "contextmenu", function(event){event.preventDefault();return false} );
 
@@ -970,7 +1051,7 @@ function getParameterByName(name) {
 
 // Join the room
 socket.emit('subscribe', {
-  room: room
+  room: state.room
 });
 
 // JSON data ofthe users current drawing
@@ -1034,7 +1115,7 @@ $('#colorToggle').on('click', function() {
 
   $('#clearCanvas').click(function(){
     clearCanvas();
-    socket.emit('canvas:clear', room);
+    socket.emit('canvas:clear', state.room);
     $('#clearCanvasPopup').fadeToggle()
   })
 $('#clearImage').click(function() {
@@ -1213,8 +1294,8 @@ Pencil.prototype.onMouseUp=function(event){
     path_to_send.end = view.projectToView(path.lastSegment.point);
     // This covers the case where paths are created in less than 100 seconds
     // it does add a duplicate segment, but that is okay for now.
-    socket.emit('draw:progress', room, uid, JSON.stringify(path_to_send));
-    socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
 
     // Stop new path data being added & sent
     path_to_send.path = new Array();
@@ -1443,7 +1524,7 @@ Select.prototype.onMouseDrag=function(event){
                 var item = paper.project.selectedItems[x];
                 itemNames.push(item._name);
               }
-              socket.emit('item:move:progress', room, uid, itemNames, this.item_move_delta);
+              socket.emit('item:move:progress', state.room, uid, itemNames, this.item_move_delta);
               this.item_move_delta = null;
             }
           }, 50);
@@ -1461,10 +1542,10 @@ Select.prototype.onMouseUp=function(event){
           var item = paper.project.selectedItems[x];
           itemNames.push(item._name);
         }
-        socket.emit('item:move:end', room, uid, itemNames, this.item_move_delta);
+        socket.emit('item:move:end', state.room, uid, itemNames, this.item_move_delta);
       } else {
         // delta is null, so send 0 change
-        socket.emit('item:move:end', room, uid, itemNames, new Point(0, 0));
+        socket.emit('item:move:end', state.room, uid, itemNames, new Point(0, 0));
       }
       this.item_move_delta = null;
       this.item_move_timer_is_active = false;
@@ -1524,7 +1605,7 @@ addBrush({name:'draw'
           break
         case 'secondary':
           //strokeColor = new Color(255, 0,255, 100);
-          radialMenu.show(event)
+          hud.show(event)
           return
         default:
           return
@@ -1588,8 +1669,8 @@ addBrush({name:'draw'
     path_to_send.bounds=this.path.bounds
     // This covers the case where paths are created in less than 100 seconds
     // it does add a duplicate segment, but that is okay for now.
-    socket.emit('draw:progress', room, uid, JSON.stringify(path_to_send));
-    socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
 
     // Stop new path data being added & sent
     path_to_send.path = new Array();
@@ -2201,8 +2282,8 @@ PaintBrush.prototype.onMouseUp=function(event){
     if(temp){
       path_to_send=temp
     }
-    socket.emit('draw:progress', room, uid, path_to_send);
-    socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room, uid, path_to_send);
+    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
     //this.masterGlob.strokeColor='green'
     
 
@@ -2477,7 +2558,7 @@ addBrush({
           break
         case 'secondary':
           //fillColor = new Color(255, 0,255, 100);
-          radialMenu.show(event)
+          hud.show(event)
           return
           default:
             return
@@ -2557,8 +2638,8 @@ addBrush({
     // it does add a duplicate segment, but that is okay for now.
 
 
-    socket.emit('draw:progress', room, uid, this.poll(path_to_send,'force'));
-    socket.emit('draw:end', room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room, uid, this.poll(path_to_send,'force'));
+    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
     //this.masterGlob.strokeColor='green'
     
 
@@ -2667,7 +2748,7 @@ function onMouseDown(event) {
       //     if(typeof jsonString!= 'string'){
       //       jsonString=JSON.stringify(jsonString)
       //     }
-      //     socket.emit('draw:progress', room, uid, jsonString);
+      //     socket.emit('draw:progress', state.room, uid, jsonString);
       //   }, 100);
       // }
     
@@ -2762,7 +2843,8 @@ function onKeyDown(event) {
         viewZoom.pan(-panStep,0)
         break
       case 'Numpad5':
-        radialMenu.toggle()
+      case 'Digit5':
+        hud.toggle()
         break
       case 'Numpad6':
         viewZoom.pan(panStep,0)
@@ -2879,7 +2961,7 @@ function onKeyDown(event) {
             var item = paper.project.selectedItems[x];
             itemNames.push(item._name);
           }
-          socket.emit('item:move:progress', room, uid, itemNames, key_move_delta);
+          socket.emit('item:move:progress', state.room, uid, itemNames, key_move_delta);
           key_move_delta = null;
         }
       }, 100);
@@ -2902,7 +2984,7 @@ function onKeyUp(event) {
     if (items) {
       for (x in items) {
         var item = items[x];
-        socket.emit('item:remove', room, uid, item.name);
+        socket.emit('item:remove', state.room, uid, item.name);
         item.remove();
       }
     }
@@ -2918,10 +3000,10 @@ function onKeyUp(event) {
         var item = paper.project.selectedItems[x];
         itemNames.push(item._name);
       }
-      socket.emit('item:move:end', room, uid, itemNames, key_move_delta);
+      socket.emit('item:move:end', state.room, uid, itemNames, key_move_delta);
     } else {
       // delta is null, so send 0 change
-      socket.emit('item:move:end', room, uid, itemNames, new Point(0, 0));
+      socket.emit('item:move:end', state.room, uid, itemNames, new Point(0, 0));
     }
     key_move_delta = null;
     key_move_timer_is_active = false;
@@ -3003,7 +3085,7 @@ $('#usericon').on('click', function() {
 });
 $('#clearCanvas').on('click', function() {
   clearCanvas();
-  socket.emit('canvas:clear', room);
+  socket.emit('canvas:clear', state.room);
 });
 $('#exportSVG').on('click', function() {
   exportSVG();
@@ -3196,7 +3278,7 @@ function uploadImage(file) {
     var raster = new Raster(bin);
     raster.position = view.center;
     raster.name = uid + ":" + (++paper_object_count);
-    socket.emit('image:add', room, uid, JSON.stringify(bin), raster.position, raster.name);
+    socket.emit('image:add', state.room, uid, JSON.stringify(bin), raster.position, raster.name);
   });
 }
 
@@ -3227,7 +3309,7 @@ socket.on('draw:end', function(artist, data) {
   }
 
 });
-var radialMenu,graffinityPointer,viewZoom,hud,drawLayer,splineLayer;
+var graffinityPointer,viewZoom,drawLayer,splineLayer;
 
 socket.on('user:connect', function(user_count) {
   console.log("user:connect");
@@ -3235,11 +3317,6 @@ socket.on('user:connect', function(user_count) {
   splineLayer=new Layer()
   splineLayer.name='spline'
 
-  hud=new Layer()
-  hud.name='hud'
-
-  hud.activate()
-  radialMenu=new RadialMenu()
   graffinityPointer=new GraffinityPointer()
   drawLayer.activate()
   console.log('@drawLayer@',drawLayer)
@@ -3247,10 +3324,9 @@ socket.on('user:connect', function(user_count) {
   window.viewZoom=viewZoom=new ViewZoom(project)
   viewZoom.setZoomRange([.001,Number.MAX_VALUE-1])
 
-  if(coords){
-    viewZoom.panTo(coords[0],coords[1])
-    coords[2] && viewZoom.setZoomConstrained(coords[2])
-  }
+  viewZoom.panTo(state.x,state.y)
+  state.zoom && viewZoom.setZoomConstrained(state.zoom)
+  
 
   update_user_count(user_count);
 });
@@ -3421,7 +3497,6 @@ progress_external_path = function(points, artist) {
 };
 
 function processSettings(settings) {
-
   $.each(settings, function(k, v) {
 
     // Handle tool changes
@@ -3448,7 +3523,7 @@ function onFrame(event) {
 // function saveDrawing(){
 //   var canvas = document.getElementById('myCanvas');
 //   // Save image to localStorage
-//   localStorage.setItem("drawingPNG"+room, canvas.toDataURL('image/png'));
+//   localStorage.setItem("drawingPNG"+state.room, canvas.toDataURL('image/png'));
 // }
 
 
