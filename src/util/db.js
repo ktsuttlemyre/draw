@@ -1,6 +1,7 @@
 var settings = require('./Settings.js'),
     projects = require('./projects.js'),
-     ueberDB = require('ueberDB')
+     ueberDB = require('ueberDB'),
+     graffinity=require('../static/js/graffinity.js');
 
 // Database connection
 var db = new ueberDB.database(settings.dbType, settings.dbSettings);
@@ -21,22 +22,21 @@ exports.storeProject = function(room) {
 }
 
 // Try to load room from database
-exports.load = function(room, socket) {
-  console.log("load from db");
-  if (projects.projects[room] && projects.projects[room].project) {
-    var project = projects.projects[room].project;
-    db.get(room, function(err, value) {
+exports.load = function(socket,state,callback) {
+  var roomName = state.room.name
+  var project = (projects.projects[roomName] && projects.projects[roomName].project)
+  if (project) {
+    db.get(roomName, function(err, value) {
+      //console.log('err,value',err,value)
       if (value && project && project.activeLayer) {
-        socket.emit('loading:start');
         // Clear default layer as importing JSON adds a new layer.
         // We want the project to always only have one layer.
         project.activeLayer.remove();
         project.importJSON(value.project);
-        socket.emit('project:load', value);
+        console.log('sending project from database')
       }
-      socket.emit('loading:end');
+      callback(project,graffinity.packState(state))
     });
-    socket.emit('loading:end'); // used for sending back a blank database in case we try to load from DB but no project exists
   } else {
     loadError(socket);
   }

@@ -39,9 +39,9 @@ exports.endExternalPath = function (room, points, artist) {
   var path = projects[room].external_paths[artist];
   if (path) {
     // Close the path
-    path.add(new drawing.Point(points.end[1], points.end[2]));
-    path.closed = true;
-    path.smooth();
+    //path.add(new drawing.Point(points.end[1], points.end[2]));
+    //path.closed = true;
+    //path.smooth();
     project.view.draw();
     // Remove the old data
     projects[room].external_paths[artist] = false;

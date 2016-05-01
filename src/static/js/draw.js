@@ -8,68 +8,477 @@ var debug=true
 var debugStrokeColor=new Color(1,0,1,1)
 var debugFillColor=new Color(1,0,1,.3)
 
+var maxDistanceFromOrigin=15000000
+
 var preferences = {
   longClick:300
   ,mouseButtonMap:['primary','middle','secondary','back','forward']
 }
 
+// Initialise Socket.io
+var socket = io.connect('/');
+
+ // var _emit = socket.emit;
+ //    _onevent = socket.onevent;
+
+ //    socket.emit = function () { //Override outgoing
+ //        console.log('***', 'emit', arguments);
+ //        //Do your logic here
+ //        var args=[]
+ //        for(var i=0,l=arguments.length;i<l;i++){
+ //          args[i]=JSON.stringify(arguments[i],function replacer(key, value){
+ //            if (typeof value === "object") {
+ //              if(value instanceof bigInt){
+ //                console.error('emit got a bigIntObject')
+ //                return value.toString('wordBase62')
+ //              }
+ //            }
+ //            return value;
+ //          })
+ //        }
+ //        _emit.apply(socket, args);
+ //    };
+
+    // socket.onevent = function (packet) { //Override incoming
+    //     var args = packet.data || [];
+    //     console.log('***', 'onevent', data);
+    //     //Insert custom parsing
+    //     for(var i=0,l=args.length;i<l;i++){
+    //         args[i]=JSON.parse(args[i],function(key, value){
+    //           if(typeof value== 'string'){
+    //             bigInt(data.server.x,'wordBase62')
+    //           }
+
+    //         })
+    //         data.server.y=bigInt(data.server.y,'wordBase62')
+    //       args[i]=data
+    //     }
+    //     //End insert custom parsing
+
+    //     packet.data=args
+    //     _onevent.call(socket, packet);
+    // };
 
 
+
+
+var numberSystem=".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+
+//BigIntegerTests
+// web.numberToRadix(789045397843,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+// "DtHG4ot"
+// bigInt('789045397843').toString(62)
+// "d<55>hg4<50><55>"
+// bigInt("d<55>hg4<50><55>",62).toString()
+// "789045397843"
+// bigInt('789045397843').toString('wordBase62')
+// "DtHG4ot"
+// bigInt('DtHG4ot','wordBase62').toString()
+// "789045397843"
+
+
+
+
+function chunkSubstr(str, chunkSize) {
+  var chunks=[]
+  var remainder=(str.length)%8
+  chunks.push(str.substr(0,remainder))
+  for(var i=remainder,l=str.length;i<l;i+=chunkSize){
+    chunks.push(str.substr(i,chunkSize));
+  }
+  return chunks;
+}
+
+
+function borrow(array,index,remainder){
+
+
+}
+
+addSmallNumberToRadix=function(N,radix){
+  //Number.MAX_SAFE_INTEGER is 9007199254740991 in the numberSystem I use that is represented as fFgnDxSe7
+  //if i stay under that number I should be able to add and subtract using only the first few digits
+  //currently my client max distance from origan can be maxDistanceFromOrigin=1000000 or 4C92
+  //so I can stay well under that number
+  //Number.MAX_SAFE_INTEGER/2 is still 4503599627370495.5 or "KcqObyjK4" (rounded up)
+
+  var part=8
+  var maxNumber=web.radixToNumber(Array(part+1).join(numberSystem.charAt(numberSystem.length-1)),numberSystem)
+
+  if(web.numberToRadix(N,numberSystem).length>part){
+    throw 'number to add to radix is too high!'
+  }
+  var radixIsNegitive=false
+  if(radix.charAt(0)==numberSystem[1]){
+    radixIsNegitive=true
+    radix=radix.substr(1)
+  }
+  var splitRadix=chunkSubstr(radix,part)
+
+ //Loop here
+
+ var index=splitRadix.length,value;
+ while(N!=0){
+    index--
+
+    //do addition
+    value=web.radixToNumber(splitRadix[index],numberSystem)+N
+
+
+
+
+    if(value<0){ //if it was subtraction then work it out
+      var borrowed=false
+      var i=splitRadix.length
+      for(; i--;){
+        var tmp = web.radixToNumber(splitRadix[i],numberSystem)
+        if(tmp>0){
+          splitRadix[i]=web.numberToRadix(tmp-1,numberSystem)
+        }
+      }
+      for(;i<splitRadix.length;i++){
+
+      }
+      splitRadix[splitRadix.length-1]=(maxNumber+1)+value
+    }
+
+
+    value=web.numberToRadix(value,numberSystem)
+    if(value.length<part){
+
+
+
+    }
+
+
+    splitRadix[splitRadix.length-1]=value
+    for(var i=0,l=splitRadix.length;i<l;i++){
+      splitRadix[i]=web.radixToNumber(splitRadix[i],numberSystem)
+    }
+
+  }
+
+  //endloop
+  var ans=splitRadix.join('')
+  return(radixIsNegitive)?numberSystem.charAt(1)+ans:ans;
+
+  // //handle addition carryover
+  // if(ans.length>part){ //so the addition gave me more than my partion could handle
+  //   var array = splitRadix.split('')
+
+  //   var carryOver = web.radixToNumber(ans.charAt(0),numberSystem)
+  //   ans.substr(1)
+
+  //   for(i=array.length-1;i>=0;i--){
+  //       var char=array[i]
+  //       var value=web.radixToNumber.cache[numberSystem][char]
+
+  //       var candiate=numberSystem[value]
+  //       array[i]=
+  //   }
+  //   splitRadix[0]=array.join('')
+  // }
+  // return splitRadix[0]+ans
+}
+
+
+
+var defaultCanopy='~'
 var state = window.state={
-  room:null
-  ,x:0
-  ,y:0
+  room:{name:null,origin:{x:null,y:null}}
+  ,client:{x:0,y:0}
+  ,server:{x:bigInt(0),y:bigInt(0)}
   ,zoom:1
   ,mode:'draw'
   ,timeFrame:'live'
+    ,update:function(newState){
+    debugger
+
+    newState.canopy=newState.canopy||defaultCanopy
+    if(newState.canopy!=state.canopy){
+      
+
+      $('#loading').show();
+      socket.emit('canopy:join',graffinity.packState(newState),function(project,newState){
+        graffinity.loadProject(project)
+
+        //set canopy name and room info
+        state.canopy=newState.canopy
+        state.room=newState.room
+
+        state.update(newState)
+        $('#loading').hide();
+        $('#colorpicker').farbtastic(pickColor); // make a color picker
+        // cake
+        $('#canvasContainer').css("background-image", 'none');
+
+      }); //let server handle state
+      return
+    }
+    if(newState.room){
+      if(newState.room.origin){
+        if(!(newState.room.origin.x instanceof bigInt)){
+          newState.room.origin.x=bigInt(newState.room.origin.x||0,'wordBase62')
+        }
+        if(!(newState.room.origin.y instanceof bigInt)){
+          newState.room.origin.y=bigInt(newState.room.origin.y||0,'wordBase62')
+        }
+      }
+      if(newState.room.name==null){
+        throw 'IDK how we got here'
+      }
+      state.room=newState.room
+    }
+
+    if(newState.server){
+        //newState.server.x=newState.server.x||bigInt(0)
+        //newState.server.y=newState.server.y||bigInt(0)
+
+        if(!(newState.server.x instanceof bigInt)){
+          newState.server.x=bigInt(newState.server.x||0,'wordBase62')
+        }
+        if(!(newState.server.y instanceof bigInt)){
+          newState.server.y=bigInt(newState.server.y||0,'wordBase62')
+        }
+
+        //if server.x or server.y is set then override client offset
+        if(state.server.x.notEquals(newState.server.x) || state.server.y.notEquals(newState.server.y)){
+   
+          var destX=newState.server.x.subtract(newState.room.origin.x||state.room.origin.x)
+          var destY=newState.server.y.subtract(newState.room.origin.y||state.room.origin.x)
+          // if(destX.compareAbs(maxDistanceFromOrigin)==1||destY.compareAbs(maxDistanceFromOrigin)==1){ //1 means that we have exceeded maxDistanceFromOrigin
+          //   setCanonicalPath(newState.room.name,newState.server.x,newState.server.y)
+          //   location.refresh()
+          // }
+          newState.client={x:destX.toJSNumber(),y:destY.toJSNumber()}
+          state.server=newState.server
+          //return
+        }
+    }
+    if(newState.client){
+      newState.client.x=newState.client.x||0
+      newState.client.y=newState.client.y||0
+      if(newState.client.x!=state.client.x || newState.client.y !=state.client.y){
+        debugger
+        var point =viewZoom.panTo(newState.client.x,newState.client.y)
+        state.client.x=point.x
+        state.client.y=point.y
+        //graffinity.setClientXYZ(point.x,point.y)
+      }
+    }
+
+    newState.zoom=newState.zoom||1
+    if(newState.zoom!=state.zoom){
+      viewZoom.setZoomConstrained(newState.zoom,newState.client)
+      state.zoom=newState.zoom
+    }
+
+
+  //   if(coordsChanged){
+  //   //TODO here i need a big number implementation that can calculate the difference between server global radix to current local coord system
+  //   state.client.x=web.radixToNumber(state.server.x,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+  //   state.client.y=web.radixToNumber(state.server.y,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+  // }
+
+
+
+  // var fn = _.bind(viewZoom.panTo,viewZoom,state.client.x,state.client.y,state.zoom)
+  // if(documentReady){
+  //   fn()
+  // }else{
+  //   $(fn)
+  // }
+
+  //   viewZoom.panTo(newState.client.x,newState.client.y,newState.zoom)
+   }
 }
 
-page('/:room?/:coords?/:args?', function(context){
-  var room = state.room=context.params.room||'~'
+
+
+window.graffinity=window.graffinity||{}
+
+//see christoph answer http://stackoverflow.com/questions/661562/how-to-format-a-float-in-javascript
+var fixedPrecision = Math.pow(10, 3 || 0); //3 is decimal length
+var setCanonicalPath=function(room,serverX,serverY,zoom){
+  debugger
+  room=room||state.room.name;
+  serverX=(null==serverX)?state.server.x:serverX;
+  serverY=(null==serverY)?state.server.y:serverY;
+  zoom=(zoom==null)?view.zoom:zoom;
+
+  if(typeof serverX != 'string'){ //assume bigInt
+    serverX=serverX.toString('wordBase62')
+  }
+  if(typeof serverY != 'string'){ //assume bigInt
+    serverY=serverY.toString('wordBase62')
+  }
+
+  //consturct canonicalPath string
+  var canonicalPath='/'
+  if(serverX=='0'&&serverY=='0'&&(zoom==1||zoom==null)){
+    if(room!=defaultRoom){
+      canonicalPath+=room
+    }
+  }else if(zoom!=1){
+    canonicalPath+=room+'/'+serverX+','+serverY+','+zoom
+  }else if(serverX||serverY){
+    canonicalPath+=room+'/'+serverX+','+serverY
+  }
+  state.canonicalPath=canonicalPath
+
+  page.redirect(canonicalPath)
+}
+//setCanonicalPath.debounce=_.debounce(setCanonicalPath,100,{leading:true,traling:true,maxWait:5000})
+
+
+var serverUpdateLocation=function(serverX,serverY,zoom){
+  // if(typeof serverX != 'string'){ //assume bigInt
+  //   serverX=serverX.toString('wordBase62')
+  // }
+  // if(typeof serverY != 'string'){ //assume bigInt
+  //   serverY=serverY.toString('wordBase62')
+  // }
+  socket.emit('view:position',serverX,serverY,function(){
+
+  })
+  setCanonicalPath(null,serverX,serverY,zoom)
+}
+serverUpdateLocation.debounce=_.debounce(serverUpdateLocation,100,{leading:true,traling:true,maxWait:5000})
+
+
+
+graffinity.setClientXYZ=function(clientX,clientY,zoom){
+  // if(state.server.x.equals(clientX)&&state.server.y.equals(clientY)){
+  //   return
+  // }
+  debugger
+  if(typeof clientY=='string'||typeof clientX=='string'){
+    throw 'Error clientX and clientY can not be string'
+  }
+
+  //if anything is null then make it a value
+  clientX=(clientX!=null)?clientX:(view.center.x||0);
+  clientY=(clientY!=null)?clientY:(view.center.y||0);
+  zoom = (zoom!=null)?zoom:(view.zoom||1);
+
+  //do any doctoring of values
+  clientX=Math.round(clientX)
+  clientY=Math.round(clientY)
+  zoom=(Math.round(parseFloat(zoom)* fixedPrecision) / fixedPrecision) //this sets precision without using a string
+
+  //now we set it to server Global space
+  var serverX=state.room.origin.x.add(clientX)
+  var serverY=state.room.origin.y.add(clientY)
+  console.log(serverX.value,serverY.value)
+
+  state.server.x=serverX
+  state.server.y=serverY
+  state.client.x=clientX
+  state.client.y=clientY
+  state.zoom=zoom
+
+
+  serverUpdateLocation.debounce(serverX.toString('wordBase62'),serverY.toString('wordBase62'),zoom)
+}
+
+graffinity.loadProject=function(project){
+  paper.project.activeLayer.remove();
+  paper.project.importJSON(project);
+
+  // Make color selector draggable
+  $('#mycolorpicker').pep({});
+  // Make sure the range event doesn't propogate to pep
+  $('#opacityRangeVal').on('touchstart MSPointerDown mousedown', function(ev) {
+    ev.stopPropagation();
+  }).on('change', function(ev) {
+    update_active_color();
+  })
+
+  view.draw();
+  $.get("../static/img/wheel.png");
+}
+graffinity.loadCanopy=function(canopy){
+  //socket.emit('jumpTo',canopy)
+
+  state.canopy=canopy
+}
+graffinity.loadView=function(point,size){
+
+}
+graffinity.moveLocation=function(point){
+
+}
+graffinity.zoom=function(){
+
+}
+
+
+
+var documentReady=false
+// page(function(context,next){ //remove trailing slashes
+//   if(context.pathname.charAt(context.pathname.length-1)=='/'){
+//     page.redirect(context.canonicalPath.slice(0, context.pathname.length-1) + str.slice(context.pathname.length))
+//     return
+//   }
+//   next()
+// })
+page('/:canopy?/:coords?/:args?', function(context){
+  if(state.canonicalPath==context.canonicalPath){
+    return
+  }
+  //TODO this should send room and coords to server and server decides what users in a room together.
+  //TODO Room will be converted to canvas in the future
+  debugger
+  var newState={
+    canopy:context.params.canopy
+  }
+
+  if(newState.canopy==null){
+    newState.canopy=defaultCanopy
+  }
+
 
   var radixCoords = context.params.coords
   if(radixCoords){
     radixCoords=radixCoords.split(',')
-    radixCoords[0] && (state.x=web.radixToNumber(radixCoords[0],".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
-    radixCoords[1] && (state.y=web.radixToNumber(radixCoords[1],".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"))
-    radixCoords[2] && (state.zoom=parseFloat(radixCoords[2]))
+    var serverX,serverY;
+    if(radixCoords[0].charAt(1)==':'){
+      if(radixCoords[0].charAt(0)=='n'){
+        serverX=bigInt(radixCoords[0].substring(2))
+      }else{
+        throw 'error converting url number to bigInt'+radixCoords[0]
+      }
+    }
+    if(radixCoords[1].charAt(1)==':'){
+      if(radixCoords[1].charAt(0)=='n'){
+        serverY=bigInt(radixCoords[1].substring(2))
+      }else{
+        throw 'error converting url number to bigInt'+radixCoords[0]
+      }
+    }
+    if(null==serverX){
+      serverX=bigInt(radixCoords[0],'wordBase62')
+    }
+    if(null==serverY){
+      serverY=bigInt(radixCoords[1],'wordBase62')
+    }
+    newState.server={x:serverX,y:serverY}
+    newState.zoom=parseFloat(radixCoords[2]||0)
   }
 
+  // if(newState.room.name=state.room.name && newState.server.x.equals(state.server.x) && state.server.y.equals(state.server.y){
+  //   return
+  // }
+
+  state.update(newState)
+  //graffinity.loadProject(newState.)
+  //graffinity.setLocation()
 });
 page()
 
-//see christoph answer http://stackoverflow.com/questions/661562/how-to-format-a-float-in-javascript
-var fixedPrecision = Math.pow(10, 3 || 0); //3 is decimal length
-var setCoordsInURL= function(room,X,Y,zoom){
 
-  //set everything if needed
-  room=state.room = (room||state.room)
-  
-  X=(X==null)?view.center.x:X
-  Y=(Y==null)?view.center.y:Y
-  zoom = (zoom==null)?view.zoom:zoom
 
-  state.x= view.center.x= (Math.round(X||0))
-  state.y= view.center.y= (Math.round(Y||0))
-  state.zoom= zoom= view.zoom= (Math.round(zoom* fixedPrecision) / fixedPrecision) //this sets precision without using a string
-
-  X=web.numberToRadix(state.x,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-  Y=web.numberToRadix(state.y,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-  //zoom=web.numberToRadix(zoom,".-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") //TODO support this
-  if(state.x==0&&state.y==0&&(state.zoom==1||state.zoom==null)){
-    if(room=='~'){
-      page.redirect('/')
-    }else{
-      page.redirect('/'+room)
-    }
-  }else if(zoom!=1){
-    page.redirect('/'+room+'/'+X+','+Y+','+zoom)
-  }else if(X||Y){
-    page.redirect('/'+room+'/'+X+','+Y)
-  }
-  
-}
-var setCoordsInURLDebounced=_.debounce(setCoordsInURL,50)
 
 
 
@@ -652,13 +1061,14 @@ var ViewZoom= (function () { //https://gist.github.com/ryascl/4c1fd9e2d5d0030ba4
           }
         }
 
-        var project=this.project=project
+        project=this.project=project
         var view = this.project.view;
 
         var lastWheelPosition;
 
-        $(document).mousewheel(_.bind(function (event) {
-            var mousePosition = new paper.Point(event.offsetX, event.offsetY);
+        $(view.element).mousewheel(_.bind(function (event) {
+          console.log(event)
+            var mousePosition = new paper.Point(event.offsetX,event.offsetY)//event.clientX,event.clientY); 
             var deltaY = event.originalEvent.deltaY
             var deltaX = event.originalEvent.deltaX
             event.preventDefault()
@@ -668,48 +1078,54 @@ var ViewZoom= (function () { //https://gist.github.com/ryascl/4c1fd9e2d5d0030ba4
             if(this.inverseMousewheel.y){
               deltaY=-deltaY
             }
-            if(event.shiftKey){
+            var point,zoom;
+            if(event.ctrlKey){ //DEV Note: ctrl scroll is default for windows, linux and so mac will make pinch zoom emulate a mouswheel+ctrl event!
+              debugger
               if(Math.abs(deltaY)>Math.abs(deltaX)){
-                this.changeZoomCentered(deltaY, mousePosition);
+                zoom=this.changeZoomCentered(-deltaY, mousePosition);
               }else{
                 //this.changeZoomCentered(deltaY, mousePosition,.1);
+              
               }
-              return
+              graffinity.setClientXYZ(null,null,zoom)
+            }else{
+                point = this.pan(deltaX,deltaY,event.deltaFactor)
+                graffinity.setClientXYZ(point.x,point.y)
             }
-            this.pan(deltaX,deltaY,event.deltaFactor)
+        },this));
 
+        // view.on("mousedown", _.bind(function(ev) {
+        //     if(!this.joystickDrivePan){
+        //       return
+        //     }
+        //     this.viewCenterStart = view.center;
+        //     // Have to use native mouse offset, because ev.delta 
+        //     //  changes as the view is scrolled.
+        //     this.mouseNativeStart = new paper.Point(ev.event.offsetX, ev.event.offsetY);
+        // },this));
 
-        },this));
-        view.on("mousedown", _.bind(function (ev) {
-            if(!this.joystickDrivePan){
-              return
-            }
-            this.viewCenterStart = view.center;
-            // Have to use native mouse offset, because ev.delta 
-            //  changes as the view is scrolled.
-            this.mouseNativeStart = new paper.Point(ev.event.offsetX, ev.event.offsetY);
-        },this));
-        view.on("mousedrag", _.bind(function (ev) {
-            if(!this.joystickDrivePan){
-              return
-            }
-            if (this.viewCenterStart) {
-                var nativeDelta = new paper.Point(ev.event.offsetX - this.mouseNativeStart.x, ev.event.offsetY - this.mouseNativeStart.y);
-                // Move into view coordinates to subract delta,
-                //  then back into project coords.
-                view.center = view.viewToProject(this.viewCenterStart)
-                    .subtract(nativeDelta);
-            }
-        },this));
-        view.on("mouseup", _.bind(function (ev) {
-          if(!this.joystickDrivePan){
-              return
-            }
-            if (this.mouseNativeStart) {
-                this.mouseNativeStart = null;
-                this.viewCenterStart = null;
-            }
-        },this));
+        // view.on("mousedrag", _.bind(function (ev) {
+        //     if(!this.joystickDrivePan){
+        //       return
+        //     }
+        //     if (this.viewCenterStart) {
+        //         var nativeDelta = new paper.Point(ev.event.offsetX - this.mouseNativeStart.x, ev.event.offsetY - this.mouseNativeStart.y);
+        //         // Move into view coordinates to subract delta,
+        //         //  then back into project coords.
+        //         view.center = view.viewToProject(this.viewCenterStart)
+        //             .subtract(nativeDelta);
+        //     }
+        // },this));
+
+        // view.on("mouseup", _.bind(function (ev) {
+        //   if(!this.joystickDrivePan){
+        //       return
+        //     }
+        //     if (this.mouseNativeStart) {
+        //         this.mouseNativeStart = null;
+        //         this.viewCenterStart = null;
+        //     }
+        // },this));
 
 var mc = new Hammer.Manager(view.element);
 
@@ -803,8 +1219,7 @@ mc.on("panend pinchend", _.bind(function (event) {
         configurable: true
     });
 
-    ViewZoom.prototype.pan= function(deltaX, deltaY, factor) {
-
+    ViewZoom.prototype.pan= function(deltaX,deltaY,factor) {
         var offset;
         if(deltaX.className=='Point'){
           offset=deltaX
@@ -824,27 +1239,28 @@ mc.on("panend pinchend", _.bind(function (event) {
         }
         return newPoint
       };
-
-    ViewZoom.prototype.panTo= function(X, Y) {
+    ViewZoom.prototype.panTo= function(xValue,yValue,zoom) {
         var point
-        if(X.className=='Point'){
-          point=X
-          X=point.x
-          Y=point.y
+        if(xValue.className=='Point'){
+          point=xValue
+          xValue=point.x
+          yValue=point.y
         }else{
-          point = new paper.Point(X, Y);
+          point = new paper.Point(xValue, yValue);
         }
         //TODO if x or y is greater than 1000000 force refresh
-        if(!debug && point.x>1000000 || point.y>1000000 || point.x<-1000000 || point.y<-1000000){
-          setCoordsInURLDebounced.cancel && setCoordsInURLDebounced.cancel()
-          setCoordsInURL(state.room,X,Y)
+        // if(!debug && point.x>1000000 || point.y>1000000 || point.x<-1000000 || point.y<-1000000){
+        //   setCanonicalPath(state.room,xValue,yValue)
 
-          //TODO reinitialize everything properly
-          location.reload()
-          return 
-        }
-        setCoordsInURLDebounced(state.room,X,Y)
+        //   //TODO reinitialize everything properly
+        //   location.reload()
+        //   return 
+        // }
         view.center = point;
+
+        if(zoom){
+          this.setZoomConstrained(zoom,point)
+        }
         return view.center
       };
 
@@ -854,7 +1270,13 @@ mc.on("panend pinchend", _.bind(function (event) {
      * Set zoom level.
      * @returns zoom level that was set, or null if it was not changed
      */
-    ViewZoom.prototype.setZoomConstrained = function (zoom,point) {
+    ViewZoom.prototype.setZoomConstrained= function (zoom,point) {
+        if(zoom==null){
+          return null  //this.project.view.zoom
+        }
+        if(zoom==this.project.view.zoom){
+          return
+        }
         if (this._minZoom) {
             zoom = Math.max(zoom, this._minZoom);
         }
@@ -862,19 +1284,18 @@ mc.on("panend pinchend", _.bind(function (event) {
             zoom = Math.min(zoom, this._maxZoom);
         }
         var view = this.project.view;
-        if (zoom != (this.layerScale||view.zoom) ){
-            if(this.ignoreLayers){
-              for(var i=0,l=this.project.layers.length;i<l;i++){
-                var layer = this.project.layers[i]
-                if(!this.ignoreLayerIDs[layer.id]){ //TODO use id to search (could be sped up to use a hash table)
-                  this.project.layers[i].scale(zoom,point)
-                }
-              }
-              //this.layerScale=zoom
-            }else{
+        if (zoom != (/*this.layerScale||*/view.zoom) ){
+            // if(this.ignoreLayers){
+            //   for(var i=0,l=this.project.layers.length;i<l;i++){
+            //     var layer = this.project.layers[i]
+            //     if(!this.ignoreLayerIDs[layer.id]){ //TODO use id to search (could be sped up to use a hash table)
+            //       this.project.layers[i].scale(zoom,point)
+            //     }
+            //   }
+            //   //this.layerScale=zoom
+            // }else{
               view.zoom = zoom;
-              setCoordsInURLDebounced()
-            }
+            //}
             return zoom;
         }
         return null;
@@ -906,13 +1327,15 @@ mc.on("panend pinchend", _.bind(function (event) {
         if (!delta) {
             return;
         }
+        mousePos=mousePos||this.project.view.center
+        var metric= /*this.layerScale||*/this.project.view.zoom;
         var view = this.project.view;
-        var oldZoom = this.layerScale||view.zoom;
-        var oldCenter = view.center;
-        var viewPos = view.viewToProject(mousePos);
+        var oldZoom = metric
+        var oldCenter = this.project.view.center;
+        var viewPos = this.project.view.viewToProject(mousePos);
         var newZoom = delta > 0
-            ? (this.layerScale||view.zoom) * (factor||this.factor)
-            :(this.layerScale||view.zoom) / (factor||this.factor);
+            ? (metric) * (factor||this.factor)
+            :(metric) / (factor||this.factor);
         newZoom = this.setZoomConstrained(newZoom,mousePos);
 
         if (!newZoom) {
@@ -928,6 +1351,7 @@ mc.on("panend pinchend", _.bind(function (event) {
         }else{
           view.center = view.center.add(offset);
         }
+        return newZoom
     };
     ;
     ViewZoom.prototype.zoomTo = function (rect) {
@@ -945,8 +1369,24 @@ mc.on("panend pinchend", _.bind(function (event) {
     return ViewZoom;
 }());
 
+
+var graffinityPointer,viewZoom,drawLayer,splineLayer;
+
 var canvas,mainProject,hudCanvas,hudProject;
 $(document).ready(function() {
+  var isLocal=web.trimEnd(web.url(web.url,'domain'),':')=='127.0.0.1'
+  if(!isLocal){
+    $('#pencilTool').hide()
+    $('#paintTool').hide()
+    $('#globTool').hide()
+    $('#circleTool').hide()
+    $('#toggleBackground').hide()
+    $('#importExport').hide()
+    //$('#settingslink').hide()
+  }
+
+
+  documentReady=true
   var drawurl = window.location.href.split("?")[0]; // get the drawing url
   $('#embedinput').val("<iframe name='embed_readwrite' src='" + drawurl + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400></iframe>"); // write it to the embed input
   $('#linkinput').val(drawurl); // and the share/link input
@@ -1003,6 +1443,23 @@ $(document).ready(function() {
   window.hud=new HUD(hudCanvas,hudProject.activeLayer)
   mainProject.activate()
 
+
+
+
+
+  drawLayer=paper.project.activeLayer;
+  splineLayer=new Layer()
+  splineLayer.name='spline'
+
+  graffinityPointer=new GraffinityPointer()
+  drawLayer.activate()
+  console.log('@drawLayer@',drawLayer)
+
+  window.viewZoom=viewZoom=new ViewZoom(project)
+  viewZoom.setZoomRange([.001,Number.MAX_VALUE-1])
+
+  //set default viewpoint to 0
+  view.center=new Point(0,0)
 }).on( "contextmenu", function(event){event.preventDefault();return false} );
 
 function scrolled(point, delta) {
@@ -1025,8 +1482,7 @@ function scrolled(point, delta) {
 
 $('#activeColorSwatch').css('background-color', $('.colorSwatch.active').css('background-color'));
 
-// Initialise Socket.io
-var socket = io.connect('/');
+
 
 // Random User ID
 // Used when sending data
@@ -1049,10 +1505,6 @@ function getParameterByName(name) {
   }
 }
 
-// Join the room
-socket.emit('subscribe', {
-  room: state.room
-});
 
 // JSON data ofthe users current drawing
 // Is sent to the user
@@ -1113,11 +1565,7 @@ $('#colorToggle').on('click', function() {
   }
 });
 
-  $('#clearCanvas').click(function(){
-    clearCanvas();
-    socket.emit('canvas:clear', state.room);
-    $('#clearCanvasPopup').fadeToggle()
-  })
+
 $('#clearImage').click(function() {
   $('#clearCanvasPopup').fadeToggle()
 });
@@ -1294,8 +1742,8 @@ Pencil.prototype.onMouseUp=function(event){
     path_to_send.end = view.projectToView(path.lastSegment.point);
     // This covers the case where paths are created in less than 100 seconds
     // it does add a duplicate segment, but that is okay for now.
-    socket.emit('draw:progress', state.room, uid, JSON.stringify(path_to_send));
-    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room.name, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:end', state.room.name, uid, JSON.stringify(path_to_send));
 
     // Stop new path data being added & sent
     path_to_send.path = new Array();
@@ -1524,7 +1972,7 @@ Select.prototype.onMouseDrag=function(event){
                 var item = paper.project.selectedItems[x];
                 itemNames.push(item._name);
               }
-              socket.emit('item:move:progress', state.room, uid, itemNames, this.item_move_delta);
+              socket.emit('item:move:progress', state.room.name, uid, itemNames, this.item_move_delta);
               this.item_move_delta = null;
             }
           }, 50);
@@ -1542,10 +1990,10 @@ Select.prototype.onMouseUp=function(event){
           var item = paper.project.selectedItems[x];
           itemNames.push(item._name);
         }
-        socket.emit('item:move:end', state.room, uid, itemNames, this.item_move_delta);
+        socket.emit('item:move:end', state.room.name, uid, itemNames, this.item_move_delta);
       } else {
         // delta is null, so send 0 change
-        socket.emit('item:move:end', state.room, uid, itemNames, new Point(0, 0));
+        socket.emit('item:move:end', state.room.name, uid, itemNames, new Point(0, 0));
       }
       this.item_move_delta = null;
       this.item_move_timer_is_active = false;
@@ -1669,8 +2117,8 @@ addBrush({name:'draw'
     path_to_send.bounds=this.path.bounds
     // This covers the case where paths are created in less than 100 seconds
     // it does add a duplicate segment, but that is okay for now.
-    socket.emit('draw:progress', state.room, uid, JSON.stringify(path_to_send));
-    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room.name, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:end', state.room.name, uid, JSON.stringify(path_to_send));
 
     // Stop new path data being added & sent
     path_to_send.path = new Array();
@@ -2282,8 +2730,8 @@ PaintBrush.prototype.onMouseUp=function(event){
     if(temp){
       path_to_send=temp
     }
-    socket.emit('draw:progress', state.room, uid, path_to_send);
-    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room.name, uid, path_to_send);
+    socket.emit('draw:end', state.room.name, uid, JSON.stringify(path_to_send));
     //this.masterGlob.strokeColor='green'
     
 
@@ -2638,8 +3086,8 @@ addBrush({
     // it does add a duplicate segment, but that is okay for now.
 
 
-    socket.emit('draw:progress', state.room, uid, this.poll(path_to_send,'force'));
-    socket.emit('draw:end', state.room, uid, JSON.stringify(path_to_send));
+    socket.emit('draw:progress', state.room.name, uid, this.poll(path_to_send,'force'));
+    socket.emit('draw:end', state.room.name, uid, JSON.stringify(path_to_send));
     //this.masterGlob.strokeColor='green'
     
 
@@ -2876,10 +3324,10 @@ function onKeyDown(event) {
           graffinityPointer.show()
           break
         case '+':
-          viewZoom.changeZoomCentered(3, project.view.center);
+          viewZoom.changeZoomCentered(3);
           break
         case '-':
-          viewZoom.changeZoomCentered(-3, project.view.center);
+          viewZoom.changeZoomCentered(-3);
           break
       } 
     }
@@ -2961,7 +3409,7 @@ function onKeyDown(event) {
             var item = paper.project.selectedItems[x];
             itemNames.push(item._name);
           }
-          socket.emit('item:move:progress', state.room, uid, itemNames, key_move_delta);
+          socket.emit('item:move:progress', state.room.name, uid, itemNames, key_move_delta);
           key_move_delta = null;
         }
       }, 100);
@@ -2984,7 +3432,7 @@ function onKeyUp(event) {
     if (items) {
       for (x in items) {
         var item = items[x];
-        socket.emit('item:remove', state.room, uid, item.name);
+        socket.emit('item:remove', state.room.name, uid, item.name);
         item.remove();
       }
     }
@@ -3000,10 +3448,10 @@ function onKeyUp(event) {
         var item = paper.project.selectedItems[x];
         itemNames.push(item._name);
       }
-      socket.emit('item:move:end', state.room, uid, itemNames, key_move_delta);
+      socket.emit('item:move:end', state.room.name, uid, itemNames, key_move_delta);
     } else {
       // delta is null, so send 0 change
-      socket.emit('item:move:end', state.room, uid, itemNames, new Point(0, 0));
+      socket.emit('item:move:end', state.room.name, uid, itemNames, new Point(0, 0));
     }
     key_move_delta = null;
     key_move_timer_is_active = false;
@@ -3081,12 +3529,20 @@ $('#importExport').on('click', function() {
   $('#importexport').fadeToggle();
 });
 $('#usericon').on('click', function() {
-  $('#mycolorpicker').fadeToggle();
+  
 });
 $('#clearCanvas').on('click', function() {
-  clearCanvas();
-  socket.emit('canvas:clear', state.room);
+  socket.emit('canvas:clear', state.room.name,function(allowed){
+    if(allowed){
+      clearCanvas();
+    }else{
+      web.notify('Not authroized:','User can not clear this canvas')
+    }
+    $('#clearCanvasPopup').fadeToggle()
+  });
 });
+
+
 $('#exportSVG').on('click', function() {
   exportSVG();
 });
@@ -3278,13 +3734,27 @@ function uploadImage(file) {
     var raster = new Raster(bin);
     raster.position = view.center;
     raster.name = uid + ":" + (++paper_object_count);
-    socket.emit('image:add', state.room, uid, JSON.stringify(bin), raster.position, raster.name);
+    socket.emit('image:add', state.room.name, uid, JSON.stringify(bin), raster.position, raster.name);
   });
 }
 
 
 
+// ---------------------------------
+//default events
+socket.on('connect', function(){
 
+});
+socket.on('error', function(err) {web.notify('Error:',JSON.stringify(err))} ); // wait for reconnect
+
+socket.on('disconnect', function() {web.notify('Disconnected');  $('#lostConnection').show();} ); // wait for reconnect
+
+
+socket.on('reconnect', function(attempts) {web.notify('restored connection')} ); // connection restored  
+socket.on('reconnecting', function(attempts) {web.notify('Reconnnecting...','attempt '+attempts)} ); //trying to reconnect
+
+socket.on('reconnect_error', function(err) { web.notify("Reconnect errored",JSON.stringify(err)); });
+socket.on('reconnect_failed', function() { web.notify("Reconnect failed"); });
 // --------------------------------- 
 // SOCKET.IO EVENTS
 socket.on('settings', function(settings) {
@@ -3293,7 +3763,7 @@ socket.on('settings', function(settings) {
 
 
 socket.on('draw:progress', function(artist, data) {
-
+  debugger
   // It wasnt this user who created the event
   if (artist !== uid && data) {
     progress_external_path(JSON.parse(data), artist);
@@ -3302,31 +3772,15 @@ socket.on('draw:progress', function(artist, data) {
 });
 
 socket.on('draw:end', function(artist, data) {
-
   // It wasnt this user who created the event
   if (artist !== uid && data) {
     end_external_path(JSON.parse(data), artist);
   }
-
 });
-var graffinityPointer,viewZoom,drawLayer,splineLayer;
+
 
 socket.on('user:connect', function(user_count) {
   console.log("user:connect");
-  drawLayer=paper.project.activeLayer;
-  splineLayer=new Layer()
-  splineLayer.name='spline'
-
-  graffinityPointer=new GraffinityPointer()
-  drawLayer.activate()
-  console.log('@drawLayer@',drawLayer)
-
-  window.viewZoom=viewZoom=new ViewZoom(project)
-  viewZoom.setZoomRange([.001,Number.MAX_VALUE-1])
-
-  viewZoom.panTo(state.x,state.y)
-  state.zoom && viewZoom.setZoomConstrained(state.zoom)
-  
 
   update_user_count(user_count);
 });
@@ -3335,45 +3789,21 @@ socket.on('user:disconnect', function(user_count) {
   update_user_count(user_count);
 });
 
-socket.on('project:load', function(json) {
-  console.log("project:load",json);
-  paper.project.activeLayer.remove();
-  paper.project.importJSON(json.project);
-
-
-  // Make color selector draggable
-  $('#mycolorpicker').pep({});
-  // Make sure the range event doesn't propogate to pep
-  $('#opacityRangeVal').on('touchstart MSPointerDown mousedown', function(ev) {
-    ev.stopPropagation();
-  }).on('change', function(ev) {
-    update_active_color();
-  })
-
-  view.draw();
-  $.get("../static/img/wheel.png");
+socket.on('project:load', function(project,newState){
+  console.log("project:load");
+  graffinity.loadProject(project)
+  state.update(newState)
 });
 
-socket.on('project:load:error', function() {
-  $('#lostConnection').show();
-});
+socket.on('state:load',function(newState){
+  state.update(newState)
+})
+
 
 socket.on('canvas:clear', function() {
   clearCanvas();
 });
 
-socket.on('loading:start', function() {
-  // console.log("loading:start");
-  $('#loading').show();
-});
-
-socket.on('loading:end', function() {
-  $('#loading').hide();
-  $('#colorpicker').farbtastic(pickColor); // make a color picker
-  // cake
-  $('#canvasContainer').css("background-image", 'none');
-
-});
 
 socket.on('item:remove', function(artist, name) {
   if (artist != uid && paper.project.activeLayer._namedChildren[name][0]) {
@@ -3431,7 +3861,7 @@ var end_external_path = function(points, artist) {
   }else{ //TODO move this to pencil and draw functions
     if (path) {
       // Close the path
-      path.add(new Point(points.end[1], points.end[2]));
+      //path.add(new Point(points.end[1], points.end[2]));
       //path.closed = true; //TODO make this optional and flag comes from server per item
       //path.smooth(); //TODO i dont think I need this
       view.draw();
@@ -3854,3 +4284,9 @@ web.tendon.domElement=function(elem,target,options){
   }
   return this
 }
+
+
+window.onbeforeunload = function(e) {
+  graffinity.setClientXYZ()
+  return ;
+};

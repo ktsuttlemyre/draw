@@ -13,7 +13,11 @@ var settings = require('./src/util/Settings.js'),
     async = require('async'),
     fs = require('fs'),
     http = require('http'),
-    https = require('https');
+    https = require('https'),
+    bigInt=require('./src/static/js/lib/BigInteger.js'),
+    graffinity=require('./src/static/js/graffinity.js');
+
+
 //paper.settings.applyMatrix = false;
 
 /** 
@@ -87,14 +91,16 @@ app.all(["/admin"
 app.get('/~:user/:canvas', function(req, res){
   var room = req.params.canvas
   console.log('canvas',room,' note: if it is prefixed with a dot it is private')
-  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+  //res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+  res.send('<html><body><h1>URL reserved for future feature</h1></body></html>')
 });
 
 // Follow an active user
 app.get('/@:names', function(req, res){
   var names=req.params.names.split(',')
   console.log(names)
-  res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+  //res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
+  res.send('<html><body><h1>URL reserved for future feature</h1></body></html>')
 });
 
 
@@ -142,17 +148,59 @@ app.get('/tests/frontend', function (req, res) {
 });
 
 
-
-
-
 // LISTEN FOR REQUESTS
 var io = socket.listen(server);
 io.sockets.setMaxListeners(0);
+
+
 
 console.log("Access Etherdraw at http://"+settings.ip+":"+settings.port);
 
 // SOCKET IO
 io.sockets.on('connection', function (socket) {
+
+  // var _emit = socket.emit;
+  //   _onevent = socket.onevent;
+
+  //   socket.emit = function () { //Override outgoing
+  //       console.log('***', 'emit', arguments);
+
+  //       var args;
+  //       //Do your logic here
+  //       switch(arguments[0]){
+  //         case 'state:load':
+  //           args=[arguments[0]] //create new arguments object to replace
+  //           if(arguments[1].server && arguments[1].server.x instanceof bigInt){
+
+  //             args[1].server.x=arguments[1].server.x.toString('wordBase62')
+  //             args[1].server.y=arguments[1].server.y.toString('wordBase62')
+  //           }
+  //       }
+
+
+  //       _emit.apply(socket, args||arguments);
+  //   };
+
+  //   socket.onevent = function (packet) { //Override incoming
+  //       var args = packet.data || [];
+  //       console.log('***', 'onevent', data);
+  //       //Insert custom parsing
+
+  //       for(var i=0,l=args.length;i<l;i++){
+  //         var data=args[i]
+  //         if(data.server){
+  //           data.server.x=bigInt(data.server.x,'wordBase62')
+  //           data.server.y=bigInt(data.server.y,'wordBase62')
+  //         }
+  //         args[i]=data
+  //       }
+  //       //End insert custom parsing
+
+  //       packet.data=args
+  //       _onevent.call(socket, packet);
+  //   };
+
+
   socket.on('disconnect', function () {
     console.log("Socket disconnected");
     // TODO: We should have logic here to remove a drawing from memory as we did previously
@@ -161,22 +209,25 @@ io.sockets.on('connection', function (socket) {
   // EVENT: User stops drawing something
   // Having room as a parameter is not good for secure rooms
   socket.on('draw:progress', function (room, uid, co_ordinates) {
+    console.log('drawing progressing')
     if (!projects.projects[room] || !projects.projects[room].project) {
+      console.log('error',room,uid,JSON.stringify(projects.projects))
       loadError(socket);
       return;
     }
 
-    //scrub the attributes object //removing segments
+    console.log('draw progress',uid, JSON.stringify(json))
+    // //scrub the attributes object //removing segments
     var json = JSON.parse(co_ordinates)
-    if(json.attributes){
-      for(var i=0,l=json.attributes.length;i<l;i++){
-        var segments= json.attributes[i].segments
-        if(segments){ //currently only scrubbing the segments away
-          //json.segments=segments 
-          delete json.attributes[i].segments
-        }
-      }
-    }
+    // if(json.attributes){
+    //   for(var i=0,l=json.attributes.length;i<l;i++){
+    //     var segments= json.attributes[i].segments
+    //     if(segments){ //currently only scrubbing the segments away
+    //       //json.segments=segments 
+    //       delete json.attributes[i].segments
+    //     }
+    //   }
+    // }
 
     io.in(room).emit('draw:progress', uid, JSON.stringify(json));
     draw.progressExternalPath(room, json, uid);
@@ -197,19 +248,76 @@ io.sockets.on('connection', function (socket) {
     draw.endExternalPath(room, JSON.parse(co_ordinates), uid);
   });
 
+
+
   // User joins a room
-  socket.on('subscribe', function(data) {
-    subscribe(socket, data);
+  socket.on('canopy:join', function(state,callback) {
+  console.log('state',state)
+  state=graffinity.unpackState(state)
+  state.room=getRoom(state)
+
+  //user can be in only one room at a time
+  //TODO fix this maybe?
+  if(socket.rooms.length){
+    for(var i=0,l=socket.rooms.length;i<l;i++){
+      socket.leave(socket.rooms[i])
+    }
+  }
+  // Subscribe the client to the room
+  socket.join(state.room.name);
+
+  // If the close timer is set, cancel it
+  // if (closeTimer[room.name]) {
+  //  clearTimeout(closeTimer[room.name]);
+  // }
+
+  // get project
+  var project = projects.projects[state.room.name];
+  if (!project) { //create project
+    console.log("made room");
+    projects.projects[state.room.name] = {};
+    // Use the view from the default project. This project is the default
+    // one created when paper is instantiated. Nothing is ever written to
+    // this project as each room has its own project. We share the View
+    // object but that just helps it "draw" stuff to the invisible server
+    // canvas.
+    project = new paper.Project();
+    //project.activeLayer.applyMatrix=false;
+    projects.projects[state.room.name].project = project
+
+    projects.projects[state.room.name].external_paths = {};
+    db.load(socket,state,callback);
+  } else { // Project exists in memory, no need to load from database
+    loadFromMemory(socket,state,callback);
+  }
+
+  // Broadcast to room the new user count -- currently broken
+  var rooms = socket.adapter.rooms[state.room.name]; 
+  var roomUserCount = Object.keys(rooms).length;
+  io.to(state.room.name).emit('user:connect', roomUserCount);
+
   });
 
+  socket.on('view:position',function(serverX,serverY,callback){
+
+    callback({server:{x:serverX,y:serverY},room:{name:'',origin:''}})
+  })
+
+
+
+  //TODO add security checks in order to stop trolls
   // User clears canvas
-  socket.on('canvas:clear', function(room) {
-    if (!projects.projects[room] || !projects.projects[room].project) {
-      loadError(socket);
-      return;
+  socket.on('canvas:clear', function(room,callback) {
+    var userAllowed= true//allowedFUnction(user,room,'canvas:clear')
+    if(userAllowed){
+      if (!projects.projects[room] || !projects.projects[room].project) {
+        loadError(socket);
+        return;
+      }
+      draw.clearCanvas(room);
+      io.in(room).emit('canvas:clear');
     }
-    draw.clearCanvas(room);
-    io.in(room).emit('canvas:clear');
+    callback(userAllowed)
   });
 
   // User removes an item
@@ -242,56 +350,30 @@ io.sockets.on('connection', function (socket) {
 
 });
 
-// Subscribe a client to a room
-function subscribe(socket, data) {
-  var room = data.room;
+function getRoom(state){
+  var roomName=state.canopy||'~'
 
-  // Subscribe the client to the room
-  socket.join(room);
+  //TODO convert room to canvas and socket rooms should be based on user distance.
 
-  // If the close timer is set, cancel it
-  // if (closeTimer[room]) {
-  //  clearTimeout(closeTimer[room]);
-  // }
+  //TODO convert canvas to room based on user xy distrobution
 
-  // Create Paperjs instance for this room if it doesn't exist
-  var project = projects.projects[room];
-  if (!project) {
-    console.log("made room");
-    projects.projects[room] = {};
-    // Use the view from the default project. This project is the default
-    // one created when paper is instantiated. Nothing is ever written to
-    // this project as each room has its own project. We share the View
-    // object but that just helps it "draw" stuff to the invisible server
-    // canvas.
-    project = new paper.Project();
-    //project.activeLayer.applyMatrix=false;
-    projects.projects[room].project = project
-
-    projects.projects[room].external_paths = {};
-    db.load(room, socket);
-  } else { // Project exists in memory, no need to load from database
-    loadFromMemory(room, socket);
-  }
-
-  // Broadcast to room the new user count -- currently broken
-  var rooms = socket.adapter.rooms[room]; 
-  var roomUserCount = Object.keys(rooms).length;
-  io.to(room).emit('user:connect', roomUserCount);
+  return {name:roomName,origin:{x:bigInt(0),y:bigInt(0)}};
 }
 
+
+
 // Send current project to new client
-function loadFromMemory(room, socket) {
-  var project = projects.projects[room].project;
+function loadFromMemory(socket,state,callback) {
+  var room = state.room
+  var project = projects.projects[room.name].project;
   if (!project) { // Additional backup check, just in case
     db.load(room, socket);
     return;
   }
-  socket.emit('loading:start');
   var value = project.exportJSON();
-  socket.emit('project:load', {project: value});
+
+  callback(value,graffinity.packState(state))
   socket.emit('settings', clientSettings);
-  socket.emit('loading:end');
 }
 
 function loadError(socket) {
