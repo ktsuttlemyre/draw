@@ -8,7 +8,7 @@ var debug=true
 var debugStrokeColor=new Color(1,0,1,1)
 var debugFillColor=new Color(1,0,1,.3)
 
-var maxDistanceFromOrigin=15000000
+var maxDistanceFromOrigin=16777215 //25 bit number
 
 var preferences = {
   longClick:300
@@ -192,7 +192,7 @@ var state = window.state={
   ,zoom:1
   ,mode:'draw'
   ,timeFrame:'live'
-    ,update:function(newState){
+    ,update:function(newState){ //TODO handle feature? or just pass to server
     debugger
 
     newState.canopy=newState.canopy||defaultCanopy
@@ -200,8 +200,13 @@ var state = window.state={
       
 
       $('#loading').show();
-      socket.emit('canopy:join',graffinity.packState(newState),function(project,newState){
-        graffinity.loadProject(project)
+      socket.emit('canopy:join',graffinity.packState(newState),function(snapShot,newState){
+        debugger
+        if(snapShot.prerender){
+          graffinity.loadProject(snapShot.prerender)
+        }else{
+          alert('not using prerender')
+        }
 
         //set canopy name and room info
         state.canopy=newState.canopy
@@ -300,31 +305,50 @@ window.graffinity=window.graffinity||{}
 
 //see christoph answer http://stackoverflow.com/questions/661562/how-to-format-a-float-in-javascript
 var fixedPrecision = Math.pow(10, 3 || 0); //3 is decimal length
-var setCanonicalPath=function(room,serverX,serverY,zoom){
+var setCanonicalPath=function(canopyOrUser,feature,offset){
+/*
+canopyOrUser=string or null
+feature=string or object {name,x,y,z}
+offset = object {x,y,z} x and y and are the offsets from feature or server origin
+*/
   debugger
-  room=room||state.room.name;
-  serverX=(null==serverX)?state.server.x:serverX;
-  serverY=(null==serverY)?state.server.y:serverY;
-  zoom=(zoom==null)?view.zoom:zoom;
+  canopyOrUser=(canopyOrUser!=null)?canopyOrUser:(state.canopy.name||'~');
+  if(canopyOrUser.charAt(0)=='@'){
+    console.log('following user')
+    offset=feature
+    feature=null
+  }
+  offset=offset||state.offset||{}
+  offset.x=(null!=offset.x)?offset.x:(state.server.x||0);
+  offset.y=(null!=offset.y)?offset.y:(state.server.y||0);
+  offset.z=(null!=offset.z)?offset.z:(view.zoom||1);
 
-  if(typeof serverX != 'string'){ //assume bigInt
-    serverX=serverX.toString('wordBase62')
+  if(typeof offset.x != 'string'){ //assume bigInt
+    offset.x=offset.x.toString('wordBase62')
   }
-  if(typeof serverY != 'string'){ //assume bigInt
-    serverY=serverY.toString('wordBase62')
+  if(typeof offset.y != 'string'){ //assume bigInt
+    offset.y=offset.y.toString('wordBase62')
   }
+  offset.z=offset.z.toString()
 
   //consturct canonicalPath string
   var canonicalPath='/'
-  if(serverX=='0'&&serverY=='0'&&(zoom==1||zoom==null)){
-    if(room!=defaultRoom){
-      canonicalPath+=room
+  var xyValue=offset.x!='0'||offset.y!='0'
+  var zValue= (offset.z!=1||offset.z==null)
+
+  if(! (canopyOrUser==defaultCanopy&&!feature&&!xyValue&&!zValue) ){
+    canonicalPath+=canopyOrUser
+    if(feature){
+      canonicalPath+='/'+feature
     }
-  }else if(zoom!=1){
-    canonicalPath+=room+'/'+serverX+','+serverY+','+zoom
-  }else if(serverX||serverY){
-    canonicalPath+=room+'/'+serverX+','+serverY
+    if(xyValue || zValue ){
+      canonicalPath+='/'+offset.x+','+offset.y
+      if(zValue){
+        canonicalPath+=','+offset.z
+      }
+    }
   }
+  
   state.canonicalPath=canonicalPath
 
   page.redirect(canonicalPath)
@@ -342,7 +366,7 @@ var serverUpdateLocation=function(serverX,serverY,zoom){
   socket.emit('view:position',serverX,serverY,function(){
 
   })
-  setCanonicalPath(null,serverX,serverY,zoom)
+  setCanonicalPath()
 }
 serverUpdateLocation.debounce=_.debounce(serverUpdateLocation,100,{leading:true,traling:true,maxWait:5000})
 
@@ -414,6 +438,35 @@ graffinity.zoom=function(){
 }
 
 
+function parseRadixStringArray(radixCoords){
+  if(!radixCoords){
+    return {}
+  }
+  radixCoords =radixCoords.split(',')
+  if(radixCoords[0].charAt(1)==':'){
+    if(radixCoords[0].charAt(0)=='n'){
+      radixCoords[0]=bigInt(radixCoords[0].substring(2))
+    }else{
+      throw 'error converting url number to bigInt'+radixCoords[0]
+    }
+  }
+  if(radixCoords[1].charAt(1)==':'){
+    if(radixCoords[1].charAt(0)=='n'){
+      radixCoords[1]=bigInt(radixCoords[1].substring(2))
+    }else{
+      throw 'error converting url number to bigInt'+radixCoords[1]
+    }
+  }
+  if(null==radixCoords[0]){
+    radixCoords[0]=bigInt(radixCoords[0],'wordBase62')
+  }
+  if(null==radixCoords[1]){
+    radixCoords[1]=bigInt(radixCoords[1],'wordBase62')
+  }
+
+  return {x:radixCoords[0],y:radixCoords[1],z:parseFloat(radixCoords[2]||0)}
+}
+
 
 var documentReady=false
 // page(function(context,next){ //remove trailing slashes
@@ -423,48 +476,49 @@ var documentReady=false
 //   }
 //   next()
 // })
-page('/:canopy?/:coords?/:args?', function(context){
+page('/~:user?(.)/:project?/:args?', function(context){ //user homepage
+debugger
+})
+page('/@:user?/:offset?/:args?', function(context){ //follow or find a user
+debugger
+})
+
+page('/:canopy?/:offset?(\w*,\w*)', function(context){
+debugger
+})
+
+page('/:canopy?/:feature?/:offset?', function(context){
+  debugger
   if(state.canonicalPath==context.canonicalPath){
     return
   }
-  //TODO this should send room and coords to server and server decides what users in a room together.
-  //TODO Room will be converted to canvas in the future
-  debugger
+
+  var canopy=context.params.canopy
   var newState={
-    canopy:context.params.canopy
+    canopy:canopy
   }
 
   if(newState.canopy==null){
     newState.canopy=defaultCanopy
   }
 
+  var query=web.queryString(context.querystring)
+  var offset=context.params.offset||query.offset
+  newState.offset=parseRadixStringArray(offset)
 
-  var radixCoords = context.params.coords
-  if(radixCoords){
-    radixCoords=radixCoords.split(',')
-    var serverX,serverY;
-    if(radixCoords[0].charAt(1)==':'){
-      if(radixCoords[0].charAt(0)=='n'){
-        serverX=bigInt(radixCoords[0].substring(2))
-      }else{
-        throw 'error converting url number to bigInt'+radixCoords[0]
-      }
+  var feature=context.params.feature
+
+  newState.feature={name:'origin'}
+  if(feature){
+    var point;
+    if(feature.indexOf(',')!=-1){
+      point = parseRadixStringArray(feature)
+      newState.server={x:point.x,y:point.y}
+      newState.zoom=point.z
+      newState.feature.position={origin:'server',x:0,y:0}
+    }else{ //it is a string feature value so set up to ask the server where it is
+      newState.feature.name=feature
     }
-    if(radixCoords[1].charAt(1)==':'){
-      if(radixCoords[1].charAt(0)=='n'){
-        serverY=bigInt(radixCoords[1].substring(2))
-      }else{
-        throw 'error converting url number to bigInt'+radixCoords[0]
-      }
-    }
-    if(null==serverX){
-      serverX=bigInt(radixCoords[0],'wordBase62')
-    }
-    if(null==serverY){
-      serverY=bigInt(radixCoords[1],'wordBase62')
-    }
-    newState.server={x:serverX,y:serverY}
-    newState.zoom=parseFloat(radixCoords[2]||0)
   }
 
   // if(newState.room.name=state.room.name && newState.server.x.equals(state.server.x) && state.server.y.equals(state.server.y){
@@ -2100,7 +2154,7 @@ addBrush({name:'draw'
     this.path.add(event.point);
 
     this.path.remove()
-    var poly = simplePoly(this.path)
+    //var poly = simplePoly(this.path)
 
     // for (var i = 0; i < intersections.length; i++) {
     //     var intersectionPath = new Path.Circle({

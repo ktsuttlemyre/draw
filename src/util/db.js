@@ -35,7 +35,12 @@ exports.load = function(socket,state,callback) {
         project.importJSON(value.project);
         console.log('sending project from database')
       }
-      callback(project,graffinity.packState(state))
+      if(state.room.origin.x.equals(0)&&state.room.origin.y.equals(0)){
+        callback({prerender:project},graffinity.packState(state))
+      }else{
+        callback({},graffinity.packState(state))
+      }
+
     });
   } else {
     loadError(socket);

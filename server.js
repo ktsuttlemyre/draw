@@ -7,6 +7,7 @@ var settings = require('./src/util/Settings.js'),
     draw = require('./src/util/draw.js'),
     projects = require('./src/util/projects.js'),
     db = require('./src/util/db.js'),
+    board = require('./src/util/board.js'),
     express = require("express"),
     paper = require('paper'), //Remove paper from this server file
     socket = require('socket.io'),
@@ -111,19 +112,25 @@ app.get('//*', function(req, res){
 
 
 // Index page
-app.get('/:room?/:coords?/:args?', function(req, res){
-  var coords=req.params.coords
-  if(coords){
-    coords=coords.split(',')
+app.get('/:canopy?/:feature?/:args?', function(req, res){
+  var feature=req.params.feature
+  var coords;
+  if(feature){
+    coords=feature.split(',')
+    if(coords.length>1){
+      feature=null
+    }else{
+      coords=null
+    }
   }
   var args=req.params.args
-  var room = req.params.room
-  if(room &&room.indexOf(',')!=-1){
+  var canopy = req.params.canopy
+  if(canopy &&canopy.indexOf(',')!=-1){
     res.redirect("/~" + req.url);
     return
   }
 
-  console.log('room:',room,'coords:',coords,'args',args)
+  console.log('canopy:',canopy,'feature:',feature,'coords:',coords,'args',args)
   res.sendfile(__dirname + '/src/static/html/draw.html');//res.sendfile(__dirname + '/src/static/html/index.html');
 });
 
@@ -251,51 +258,54 @@ io.sockets.on('connection', function (socket) {
 
 
   // User joins a room
-  socket.on('canopy:join', function(state,callback) {
+  socket.on('canopy:join', function(state,callback) { //TODO convert feature to server xy
   console.log('state',state)
   state=graffinity.unpackState(state)
-  state.room=getRoom(state)
+  getRoom(state,function(err,room){
+    if(err) throw err
+    state.room=room
+  console.log('room origin',state.room.origin.x)
 
-  //user can be in only one room at a time
-  //TODO fix this maybe?
-  if(socket.rooms.length){
-    for(var i=0,l=socket.rooms.length;i<l;i++){
-      socket.leave(socket.rooms[i])
+    //user can be in only one room at a time?
+    // if(socket.rooms.length){
+    //   for(var i=0,l=socket.rooms.length;i<l;i++){
+    //     socket.leave(socket.rooms[i])
+    //   }
+    // }
+    // Subscribe the client to the room
+    socket.join(state.room.name);
+
+    // If the close timer is set, cancel it
+    // if (closeTimer[room.name]) {
+    //  clearTimeout(closeTimer[room.name]);
+    // }
+
+    // get project
+    var project = projects.projects[state.room.name];
+    if (!project) { //create project
+      console.log("made room");
+      projects.projects[state.room.name] = {};
+      // Use the view from the default project. This project is the default
+      // one created when paper is instantiated. Nothing is ever written to
+      // this project as each room has its own project. We share the View
+      // object but that just helps it "draw" stuff to the invisible server
+      // canvas.
+      project = new paper.Project();
+      //project.activeLayer.applyMatrix=false;
+      projects.projects[state.room.name].project = project
+
+      projects.projects[state.room.name].external_paths = {};
+      db.load(socket,state,callback);
+    } else { // Project exists in memory, no need to load from database
+      loadFromMemory(socket,state,callback);
     }
-  }
-  // Subscribe the client to the room
-  socket.join(state.room.name);
 
-  // If the close timer is set, cancel it
-  // if (closeTimer[room.name]) {
-  //  clearTimeout(closeTimer[room.name]);
-  // }
+    // Broadcast to room the new user count -- currently broken
+    var rooms = socket.adapter.rooms[state.room.name]; 
+    var roomUserCount = Object.keys(rooms).length;
+    io.to(state.room.name).emit('user:connect', roomUserCount);
 
-  // get project
-  var project = projects.projects[state.room.name];
-  if (!project) { //create project
-    console.log("made room");
-    projects.projects[state.room.name] = {};
-    // Use the view from the default project. This project is the default
-    // one created when paper is instantiated. Nothing is ever written to
-    // this project as each room has its own project. We share the View
-    // object but that just helps it "draw" stuff to the invisible server
-    // canvas.
-    project = new paper.Project();
-    //project.activeLayer.applyMatrix=false;
-    projects.projects[state.room.name].project = project
-
-    projects.projects[state.room.name].external_paths = {};
-    db.load(socket,state,callback);
-  } else { // Project exists in memory, no need to load from database
-    loadFromMemory(socket,state,callback);
-  }
-
-  // Broadcast to room the new user count -- currently broken
-  var rooms = socket.adapter.rooms[state.room.name]; 
-  var roomUserCount = Object.keys(rooms).length;
-  io.to(state.room.name).emit('user:connect', roomUserCount);
-
+    })
   });
 
   socket.on('view:position',function(serverX,serverY,callback){
@@ -350,14 +360,15 @@ io.sockets.on('connection', function (socket) {
 
 });
 
-function getRoom(state){
+function getRoom(state,callback){
   var roomName=state.canopy||'~'
-
   //TODO convert room to canvas and socket rooms should be based on user distance.
 
   //TODO convert canvas to room based on user xy distrobution
 
-  return {name:roomName,origin:{x:bigInt(0),y:bigInt(0)}};
+
+  var origin={x:state.server.x,y:state.server.y}
+  callback(null,{name:roomName,origin:origin});
 }
 
 
@@ -372,7 +383,11 @@ function loadFromMemory(socket,state,callback) {
   }
   var value = project.exportJSON();
 
-  callback(value,graffinity.packState(state))
+  if(state.room.origin.x.equals(0)&&state.room.origin.y.equals(0)){
+    callback({prerender:value},graffinity.packState(state))
+  }else{
+    callback({},graffinity.packState(state))
+  }
   socket.emit('settings', clientSettings);
 }
 
